@@ -50,7 +50,7 @@ contract PinjocToken is Ownable, ERC20 {
                     "POC ",
                     IERC20Metadata(debtToken_).symbol(), "/", IERC20Metadata(collateralToken_).symbol(),
                     " ",
-                    (rate_ / 1e14).toString(), "-RATE",
+                    (rate_ / 1e14).toString(), "RATE",
                     " ",
                     maturityMonth_, "-", maturityYear_.toString()
                 )

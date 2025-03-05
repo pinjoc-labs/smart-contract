@@ -46,7 +46,8 @@ contract PinjocTokenTest_Constructor is PinjocTokenTest_Base {
     /// @notice Tests that the constructor properly sets all state variables
     /// @dev Verifies token addresses, rate, maturity, and metadata
     function test_PinjocToken_Constructor() public view {
-        console.log(IERC20Metadata(pinjocToken).symbol(), IERC20Metadata(pinjocToken).name());
+        console.log("Token Symbol:", IERC20Metadata(pinjocToken).symbol());
+        console.log("Token Name:", IERC20Metadata(pinjocToken).name());
         assertEq(pinjocToken.debtToken(), debtToken, "Incorrect debt token address");
         assertEq(pinjocToken.collateralToken(), collateralToken, "Incorrect collateral token address");
         assertEq(pinjocToken.rate(), 45e16, "Incorrect borrow rate");
