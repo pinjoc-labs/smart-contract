@@ -13,6 +13,17 @@ import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 contract PinjocToken is Ownable, ERC20 {
     using Strings for uint256;
 
+    /// @notice Error thrown when invalid token information is provided
+    /// @dev Thrown when any required field in PinjocTokenInfo is zero or empty
+    /// @custom:error Thrown when:
+    /// @custom:error - debtToken is zero address
+    /// @custom:error - collateralToken is zero address
+    /// @custom:error - rate is zero
+    /// @custom:error - maturity is in the past
+    /// @custom:error - maturityMonth is empty string
+    /// @custom:error - maturityYear is zero
+    error InvalidPinjocTokenInfo();
+
     /// @notice Structure containing all relevant information for a Pinjoc token
     /// @dev Used to store and manage token-specific parameters
     /// @param debtToken Address of the token being borrowed
@@ -64,6 +75,16 @@ contract PinjocToken is Ownable, ERC20 {
             )
         ) 
     {
+        if (
+            info_.debtToken == address(0) || 
+            info_.collateralToken == address(0) ||
+            info_.rate == 0 ||
+            info_.maturity <= block.timestamp ||
+            bytes(info_.maturityMonth).length == 0 ||
+            info_.maturityYear == 0
+        ) {
+            revert InvalidPinjocTokenInfo();
+        }
         info = info_;
     }
     

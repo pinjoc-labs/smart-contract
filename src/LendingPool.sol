@@ -6,40 +6,60 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 contract LendingPool is Ownable, ReentrancyGuard {
 
-    address public debtToken; // USDC
-    address public collateralToken; // ETH
-    address public oracle; // USDC-ETH Oracle
-    address public pinjocToken;
-    uint256 public borrowRate; // 18 decimals: 10e16 = 10% APY
-    uint256 public maturity; // 1 year
+    error InvalidBorrowRate();
+    error InvalidLTV();
+    error InvalidLendingPoolInfo();
 
-    // Supply
-    uint256 public totalSupplyAssets;
-    uint256 public totalSupplyShares;
+    struct LendingPoolInfo {
+        address debtToken;
+        address collateralToken;
+        address oracle;
+        uint256 maturity;
+        string maturityMonth;
+        uint256 maturityYear;
+        uint256 ltv;
+    }
 
-    // Borrow
-    uint256 public totalBorrowAssets;
-    uint256 public totalBorrowShares;
-    mapping(address => uint256) public userBorrowShares;
-    mapping(address => uint256) public userCollaterals;
+    struct LendingPoolState {
+        uint256 totalSupplyAssets;
+        uint256 totalSupplyShares;
+        uint256 totalBorrowAssets;
+        uint256 totalBorrowShares;
+        mapping(address => uint256) userBorrowShares;
+        mapping(address => uint256) userCollaterals;
+        uint256 lastAccrued;
+        bool isActive;
+    }
 
-    // Interest Calculation
-    uint256 public lastAccrued = block.timestamp; // assumpt this contract is deployed after anyone doing supply
-
-    // Collateral Calculation
-    uint256 public ltv; // 70% Loan to Value (70% in 18 decimals)
+    LendingPoolInfo public info;
+    mapping(uint256 => LendingPoolState) public lendingPoolStates; // borrow rate => lending pool state
 
     constructor(
         address router_,
-        address debtToken_,
-        address collateralToken_,
-        address oracle_,
-        uint256 borrowRate_,
-        uint256 ltv_,
-        uint256 maturity_,
-        string memory maturityMonth_,
-        uint256 maturityYear_
+        LendingPoolInfo memory info_
     ) Ownable(router_) {
+        if (
+            info_.debtToken == address(0) ||
+            info_.collateralToken == address(0) ||
+            info_.oracle == address(0) ||
+            info_.maturity <= block.timestamp ||
+            bytes(info_.maturityMonth).length == 0 ||
+            info_.maturityYear == 0 ||
+            info_.ltv == 0
+        ) revert InvalidLendingPoolInfo();
+        info = info_;
+    }
+
+    function addBorrowRate(uint256 borrowRate_) external onlyOwner {
+        if (borrowRate_ == 0 || borrowRate_ == 100e16) revert InvalidBorrowRate();
+        LendingPoolState storage state = lendingPoolStates[borrowRate_];
+        state.isActive = true;
+        state.lastAccrued = block.timestamp;
+    }
+    
+    function setLtv(uint256 ltv_) external onlyOwner {
+        if (ltv_ == 0) revert InvalidLTV();
+        info.ltv = ltv_;
     }
 
     function supply(uint256 amount) external onlyOwner nonReentrant {
