@@ -3,12 +3,17 @@ pragma solidity ^0.8.13;
 
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {PinjocToken} from "./PinjocToken.sol";
 
 contract LendingPool is Ownable, ReentrancyGuard {
+
+    event BorrowRateAdded(uint256 borrowRate);
+    event LTVUpdated(uint256 ltv);
 
     error InvalidBorrowRate();
     error InvalidLTV();
     error InvalidLendingPoolInfo();
+    error BorrowRateAlreadyExists();
 
     struct LendingPoolInfo {
         address debtToken;
@@ -21,6 +26,7 @@ contract LendingPool is Ownable, ReentrancyGuard {
     }
 
     struct LendingPoolState {
+        address pinjocToken;
         uint256 totalSupplyAssets;
         uint256 totalSupplyShares;
         uint256 totalBorrowAssets;
@@ -51,15 +57,32 @@ contract LendingPool is Ownable, ReentrancyGuard {
     }
 
     function addBorrowRate(uint256 borrowRate_) external onlyOwner {
+        if (lendingPoolStates[borrowRate_].isActive) revert BorrowRateAlreadyExists();
         if (borrowRate_ == 0 || borrowRate_ == 100e16) revert InvalidBorrowRate();
+
         LendingPoolState storage state = lendingPoolStates[borrowRate_];
         state.isActive = true;
         state.lastAccrued = block.timestamp;
+        state.pinjocToken = address(new PinjocToken(
+            address(this), 
+            PinjocToken.PinjocTokenInfo({
+                debtToken: info.debtToken,
+                collateralToken: info.collateralToken,
+                oracle: info.oracle,
+                maturity: info.maturity,
+                maturityMonth: info.maturityMonth,
+                maturityYear: info.maturityYear
+            })
+        ));
+
+        emit BorrowRateAdded(borrowRate_);
     }
     
     function setLtv(uint256 ltv_) external onlyOwner {
         if (ltv_ == 0) revert InvalidLTV();
         info.ltv = ltv_;
+
+        emit LTVUpdated(ltv_);
     }
 
     function supply(uint256 amount) external onlyOwner nonReentrant {
