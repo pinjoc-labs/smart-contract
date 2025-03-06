@@ -7,88 +7,83 @@ import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/exten
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 
 /// @title PinjocToken
-/// @notice ERC20 token representing a position in Pinjoc lending protocol
-/// @dev Token name format: "POC DEBT/COLLATERAL RATE-XXXX MMM-YYYY"
-/// @dev Token symbol format: "pocDEBTCOLLATERALXXXXRMMMYYYY"
+/// @notice A specialized ERC20 token representing lending positions in the Pinjoc protocol
+/// @dev Implements position tracking with dynamic naming based on debt/collateral pair
+/// @custom:security-contact security@pinjoc.com
 contract PinjocToken is Ownable, ERC20 {
     using Strings for uint256;
 
-    /// @notice The debt token address (e.g., USDC)
-    address public immutable debtToken;
-    /// @notice The collateral token address (e.g., ETH)
-    address public immutable collateralToken;
-    /// @notice The borrow rate with 18 decimals (1e18 = 100%)
-    uint256 public immutable rate;
-    /// @notice The maturity timestamp
-    uint256 public immutable maturity;
-    /// @notice The maturity month in string format (e.g., "MAR")
-    string public maturityMonth;
-    /// @notice The maturity year
-    uint256 public immutable maturityYear;
+    /// @notice Structure containing all relevant information for a Pinjoc token
+    /// @dev Used to store and manage token-specific parameters
+    /// @param debtToken Address of the token being borrowed
+    /// @param collateralToken Address of the token used as collateral
+    /// @param rate Interest rate for the lending position (in basis points)
+    /// @param maturity Timestamp when the lending position matures
+    /// @param maturityMonth String representation of maturity month (e.g., "JAN")
+    /// @param maturityYear Year of maturity
+    struct PinjocTokenInfo {
+        address debtToken;
+        address collateralToken;
+        uint256 rate;
+        uint256 maturity;
+        string maturityMonth;
+        uint256 maturityYear;
+    }
 
-    /// @notice Creates a new Pinjoc token
-    /// @param lendingPool_ The address of the lending pool contract
-    /// @param debtToken_ The address of the debt token
-    /// @param collateralToken_ The address of the collateral token
-    /// @param rate_ The borrow rate with 18 decimals (45e16 = 45%, 455e15 = 45.5%)
-    /// @param maturity_ The maturity timestamp
-    /// @param maturityMonth_ The maturity month in string format (e.g., "MAR")
-    /// @param maturityYear_ The maturity year
+    /// @notice Information about the current Pinjoc token instance
+    /// @dev Stores all relevant parameters for this specific token
+    PinjocTokenInfo public info;
+
+    /// @notice Creates a new Pinjoc token instance
+    /// @dev Initializes the token with a dynamic name and symbol based on the provided parameters
+    /// @param lendingPool_ Address of the lending pool that will own this token
+    /// @param info_ Struct containing all token parameters
     constructor(
         address lendingPool_,
-        address debtToken_,
-        address collateralToken_,
-        uint256 rate_,
-        uint256 maturity_,
-        string memory maturityMonth_,
-        uint256 maturityYear_
+        PinjocTokenInfo memory info_
     ) 
         Ownable(lendingPool_)
         ERC20(
             string(
                 abi.encodePacked(
                     "POC ",
-                    IERC20Metadata(debtToken_).symbol(), "/", IERC20Metadata(collateralToken_).symbol(),
+                    IERC20Metadata(info_.debtToken).symbol(), "/", IERC20Metadata(info_.collateralToken).symbol(),
                     " ",
-                    (rate_ / 1e14).toString(), "RATE",
+                    (info_.rate / 1e14).toString(), "RATE",
                     " ",
-                    maturityMonth_, "-", maturityYear_.toString()
+                    info_.maturityMonth, "-", info_.maturityYear.toString()
                 )
             ),
             string(
                 abi.encodePacked(
                     "poc",
-                    IERC20Metadata(debtToken_).symbol(), IERC20Metadata(collateralToken_).symbol(),
-                    (rate_ / 1e14).toString(), "R",
-                    maturityMonth_, maturityYear_.toString()
+                    IERC20Metadata(info_.debtToken).symbol(), IERC20Metadata(info_.collateralToken).symbol(),
+                    (info_.rate / 1e14).toString(), "R",
+                    info_.maturityMonth, info_.maturityYear.toString()
                 )
             )
         ) 
     {
-        debtToken = debtToken_;
-        collateralToken = collateralToken_;
-        rate = rate_;
-        maturity = maturity_;
-        maturityMonth = maturityMonth_;
-        maturityYear = maturityYear_;
+        info = info_;
     }
     
     /// @notice Returns the number of decimals used for token amounts
+    /// @dev Fixed at 18 decimals for consistency with most ERC20 tokens
     /// @return The number of decimals (18)
     function decimals() public pure override returns (uint8) {
         return 18;
     }
     
-    /// @notice Mints new tokens to a specified account
-    /// @dev Only callable by the lending pool (owner)
+    /// @notice Creates new tokens and assigns them to a specified account
+    /// @dev Only the lending pool (owner) can mint tokens
     /// @param to_ The address that will receive the minted tokens
     /// @param amount_ The amount of tokens to mint
     function mint(address to_, uint256 amount_) external onlyOwner {
         _mint(to_, amount_);
     }
 
-    /// @notice Burns tokens from a specified account
-    /// @dev Only callable by the lending pool (owner)
+    /// @notice Destroys tokens from a specified account
+    /// @dev Only the lending pool (owner) can burn tokens
     /// @param from_ The address to burn tokens from
     /// @param amount_ The amount of tokens to burn
     function burn(address from_, uint256 amount_) external onlyOwner {

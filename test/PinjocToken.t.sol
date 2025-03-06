@@ -26,14 +26,18 @@ contract PinjocTokenTest_Base is Test {
         debtToken = address(new MockToken("Mock USDC", "MUSDC", 6));
         collateralToken = address(new MockToken("Mock ETH", "METH", 18));
 
+        PinjocToken.PinjocTokenInfo memory info = PinjocToken.PinjocTokenInfo({
+            debtToken: debtToken,
+            collateralToken: collateralToken,
+            rate: 45e16,
+            maturity: 1715280000,
+            maturityMonth: "MAY",
+            maturityYear: 2025
+        });
+
         pinjocToken = new PinjocToken(
             address(this), // lending pool address
-            debtToken,
-            collateralToken,
-            45e16, // 45% APR
-            1715280000, // May 2025 timestamp
-            "MAY",
-            2025
+            info
         );
         address1 = makeAddr("address1");
     }
@@ -48,12 +52,22 @@ contract PinjocTokenTest_Constructor is PinjocTokenTest_Base {
     function test_PinjocToken_Constructor() public view {
         console.log("Token Symbol:", IERC20Metadata(pinjocToken).symbol());
         console.log("Token Name:", IERC20Metadata(pinjocToken).name());
-        assertEq(pinjocToken.debtToken(), debtToken, "Incorrect debt token address");
-        assertEq(pinjocToken.collateralToken(), collateralToken, "Incorrect collateral token address");
-        assertEq(pinjocToken.rate(), 45e16, "Incorrect borrow rate");
-        assertEq(pinjocToken.maturity(), 1715280000, "Incorrect maturity timestamp");
-        assertEq(pinjocToken.maturityMonth(), "MAY", "Incorrect maturity month");
-        assertEq(pinjocToken.maturityYear(), 2025, "Incorrect maturity year");
+        
+        (
+            address debtToken_,
+            address collateralToken_,
+            uint256 rate_,
+            uint256 maturity_,
+            string memory maturityMonth_,
+            uint256 maturityYear_
+        ) = pinjocToken.info();
+
+        assertEq(debtToken_, debtToken, "Incorrect debt token address");
+        assertEq(collateralToken_, collateralToken, "Incorrect collateral token address");
+        assertEq(rate_, 45e16, "Incorrect borrow rate");
+        assertEq(maturity_, 1715280000, "Incorrect maturity timestamp");
+        assertEq(maturityMonth_, "MAY", "Incorrect maturity month");
+        assertEq(maturityYear_, 2025, "Incorrect maturity year");
     }
 }
 
