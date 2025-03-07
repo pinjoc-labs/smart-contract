@@ -3,15 +3,19 @@ pragma solidity ^0.8.13;
 
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
 import {PinjocToken} from "./PinjocToken.sol";
 import {IMockOracle} from "./interfaces/IMockOracle.sol";
+
 contract LendingPool is Ownable, ReentrancyGuard {
 
     event BorrowRateAdded(uint256 borrowRate);
     event LTVUpdated(uint256 ltv);
-    event Supply(uint256 borrowRate, address user, uint256 amount, uint256 shares);
-    event Borrow(uint256 borrowRate, address user, uint256 amount, uint256 shares);
-    event Withdraw(uint256 borrowRate, address user, uint256 shares);
+    event Supply(uint256 borrowRate, address user, uint256 shares, uint256 amount);
+    event Borrow(uint256 borrowRate, address user, uint256 shares, uint256 amount);
+    event Withdraw(uint256 borrowRate, address user, uint256 shares, uint256 amount);
     event SupplyCollateral(uint256 borrowRate, address user, uint256 amount);
     event WithdrawCollateral(uint256 borrowRate, address user, uint256 amount);
     event Repay(uint256 borrowRate, address user, uint256 amount);
@@ -85,7 +89,7 @@ contract LendingPool is Ownable, ReentrancyGuard {
             PinjocToken.PinjocTokenInfo({
                 debtToken: info.debtToken,
                 collateralToken: info.collateralToken,
-                oracle: info.oracle,
+                rate: borrowRate_,
                 maturity: info.maturity,
                 maturityMonth: info.maturityMonth,
                 maturityYear: info.maturityYear
@@ -109,23 +113,22 @@ contract LendingPool is Ownable, ReentrancyGuard {
         if (amount == 0) revert InvalidAmount();
         _accrueInterest(borrowRate);
 
-        uint256 storage totalSupplyShares = lendingPoolStates[borrowRate].totalSupplyShares;
-        uint256 storage totalSupplyAssets = lendingPoolStates[borrowRate].totalSupplyAssets;
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
 
         uint256 shares = 0;
-        if (totalSupplyShares == 0) {
+        if (state.totalSupplyShares == 0) {
             shares = amount;
         } else {
-            shares = (amount * totalSupplyShares) / totalSupplyAssets;
+            shares = (amount * state.totalSupplyShares) / state.totalSupplyAssets;
         }
         
-        totalSupplyShares += shares;
-        totalSupplyAssets += amount;
+        state.totalSupplyShares += shares;
+        state.totalSupplyAssets += amount;
         
         // mint tokenized bond to the lender
-        PinjocToken(lendingPoolStates[borrowRate].pinjocToken).mint(user, shares);
+        PinjocToken(state.pinjocToken).mint(user, shares);
 
-        emit Supply(borrowRate, user, amount, shares);
+        emit Supply(borrowRate, user, shares, amount);
     }
 
     function borrow(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) {
@@ -133,46 +136,42 @@ contract LendingPool is Ownable, ReentrancyGuard {
         if (amount == 0) revert InvalidAmount();
         _accrueInterest(borrowRate);
 
-        mapping(address => uint256) storage userBorrowShares = lendingPoolStates[borrowRate].userBorrowShares;
-        uint256 storage totalBorrowShares = lendingPoolStates[borrowRate].totalBorrowShares;
-        uint256 storage totalBorrowAssets = lendingPoolStates[borrowRate].totalBorrowAssets;
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
 
         uint256 shares = 0;
-        if (totalBorrowShares == 0) {
+        if (state.totalBorrowShares == 0) {
             shares = amount;
         } else {
-            shares = (amount * totalBorrowShares) / totalBorrowAssets;
+            shares = (amount * state.totalBorrowShares) / state.totalBorrowAssets;
         }
         
-        userBorrowShares[user] += shares;
-        totalBorrowShares += shares;
-        totalBorrowAssets += amount;
+        state.userBorrowShares[user] += shares;
+        state.totalBorrowShares += shares;
+        state.totalBorrowAssets += amount;
         
         _isHealthy(borrowRate, user);
 
-        emit Borrow(borrowRate, user, amount, shares);
+        emit Borrow(borrowRate, user, shares, amount);
     }
 
     function withdraw(uint256 borrowRate, uint256 shares) external nonReentrant onlyActiveBorrowRate(borrowRate) {
         if (shares == 0) revert InvalidAmount();
-        if (IERC20(lendingPoolStates[borrowRate].pinjocToken).balanceOf(msg.sender) < shares) revert InsufficientShares();
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
+        if (IERC20(state.pinjocToken).balanceOf(msg.sender) < shares) revert InsufficientShares();
         _accrueInterest(borrowRate);
 
-        uint256 storage totalSupplyShares = lendingPoolStates[borrowRate].totalSupplyShares;
-        uint256 storage totalSupplyAssets = lendingPoolStates[borrowRate].totalSupplyAssets;
-
         // this calculates automatically with the interest
-        uint256 amount = (shares * totalSupplyAssets) / totalSupplyShares;
+        uint256 amount = (shares * state.totalSupplyAssets) / state.totalSupplyShares;
 
-        if (IERC20(debtToken).balanceOf(address(this)) < amount) revert InsufficientLiquidity();
+        if (IERC20(info.debtToken).balanceOf(address(this)) < amount) revert InsufficientLiquidity();
         
-        totalSupplyShares -= shares;
-        totalSupplyAssets -= amount;
+        state.totalSupplyShares -= shares;
+        state.totalSupplyAssets -= amount;
 
-        PinjocToken(lendingPoolStates[borrowRate].pinjocToken).burn(msg.sender, shares);
+        PinjocToken(state.pinjocToken).burn(msg.sender, shares);
         IERC20(info.debtToken).transfer(msg.sender, amount);
         
-        emit Withdraw(borrowRate, msg.sender, amount, shares);
+        emit Withdraw(borrowRate, msg.sender, shares, amount);
     }
 
     function supplyCollateral(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) {
@@ -180,17 +179,20 @@ contract LendingPool is Ownable, ReentrancyGuard {
         if (amount == 0) revert InvalidAmount();
         _accrueInterest(borrowRate);
 
-        lendingPoolStates[borrowRate].userCollaterals[user] += amount;
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
+        state.userCollaterals[user] += amount;
 
         emit SupplyCollateral(borrowRate, user, amount);
     }
 
     function withdrawCollateral(uint256 borrowRate, uint256 amount) external nonReentrant onlyActiveBorrowRate(borrowRate) {
         if (amount == 0) revert InvalidAmount();
-        if (lendingPoolStates[borrowRate].userCollaterals[msg.sender] < amount) revert InsufficientCollateral();
+
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
+        if (state.userCollaterals[msg.sender] < amount) revert InsufficientCollateral();
         _accrueInterest(borrowRate);
 
-        lendingPoolStates[borrowRate].userCollaterals[msg.sender] -= amount;
+        state.userCollaterals[msg.sender] -= amount;
 
         _isHealthy(borrowRate, msg.sender);
 
@@ -202,17 +204,15 @@ contract LendingPool is Ownable, ReentrancyGuard {
     function repay(uint256 borrowRate, uint256 amount) external nonReentrant onlyActiveBorrowRate(borrowRate) {
         if (amount == 0) revert InvalidAmount();
         _accrueInterest(borrowRate);
+        
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
+        uint256 borrowAmount = (amount * state.totalBorrowAssets) / state.totalBorrowShares;
 
-        uint256 storage totalBorrowShares = lendingPoolStates[borrowRate].totalBorrowShares;
-        uint256 storage totalBorrowAssets = lendingPoolStates[borrowRate].totalBorrowAssets;
+        state.userBorrowShares[msg.sender] -= amount;
+        state.totalBorrowShares -= amount;
+        state.totalBorrowAssets -= borrowAmount;
 
-        uint256 borrowAmount = (amount * totalBorrowAssets) / totalBorrowShares;
-
-        userBorrowShares[msg.sender] -= amount;
-        totalBorrowShares -= amount;
-        totalBorrowAssets -= borrowAmount;
-
-        IERC20(debtToken).transferFrom(msg.sender, address(this), borrowAmount);
+        IERC20(info.debtToken).transferFrom(msg.sender, address(this), borrowAmount);
 
         emit Repay(borrowRate, msg.sender, borrowAmount);
         
@@ -234,8 +234,9 @@ contract LendingPool is Ownable, ReentrancyGuard {
         uint256 collateralPrice = IMockOracle(info.oracle).price();
         uint256 collateralDecimals = 10 ** IERC20Metadata(info.collateralToken).decimals();
 
-        uint256 borrowedValue = lendingPoolStates[borrowRate].userBorrowShares[user] * lendingPoolStates[borrowRate].totalBorrowAssets / lendingPoolStates[borrowRate].totalBorrowShares;
-        uint256 collateralValue = lendingPoolStates[borrowRate].userCollaterals[user] * collateralPrice / collateralDecimals;
+        LendingPoolState storage state = lendingPoolStates[borrowRate];
+        uint256 borrowedValue = state.userBorrowShares[user] * state.totalBorrowAssets / state.totalBorrowShares;
+        uint256 collateralValue = state.userCollaterals[user] * collateralPrice / collateralDecimals;
         uint256 maxBorrowedValue = collateralValue * info.ltv / 1e18;
 
         if (borrowedValue > maxBorrowedValue) revert InsufficientCollateral();
