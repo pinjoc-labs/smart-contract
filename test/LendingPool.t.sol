@@ -540,3 +540,75 @@ contract LendingPoolTest_Repay is LendingPoolTest_Base {
         lendingPool.repay(BORROW_RATE, 2000e6);
     }
 }
+
+/// @title LendingPool Liquidate Tests
+/// @notice Test contract for liquidation functionality
+/// @dev Inherits from LendingPoolTest_Base
+contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
+    function setUp() public override {
+        super.setUp();
+        setUp_AddBorrowRate(BORROW_RATE);
+        setUp_SupplyCollateral(BORROW_RATE, address1, 1 ether);
+        
+        // Mock debt token balance for lending pool and borrow
+        MockToken(debtToken).mint(address(lendingPool), 1000e6);
+        setUp_Borrow(BORROW_RATE, address1, 1000e6);
+
+        // Give debt tokens to liquidator
+        MockToken(debtToken).mint(address2, 2000e6);
+    }
+
+    /// @notice Test successful liquidation after maturity
+    /// @dev Verifies that positions can be liquidated after maturity date
+    function test_Liquidate_AfterMaturity() public {
+        // Move past maturity
+        vm.warp(block.timestamp + 366 days);
+
+        // Prepare liquidator
+        vm.startPrank(address2);
+        IERC20(debtToken).approve(address(lendingPool), 1000e6);
+        
+        // Liquidate position
+        lendingPool.liquidate(BORROW_RATE, address1);
+        vm.stopPrank();
+
+        // Verify liquidation results
+        assertEq(lendingPool.getUserCollateral(BORROW_RATE, address1), 0, "Collateral should be transferred to liquidator");
+        assertEq(lendingPool.getUserBorrowShares(BORROW_RATE, address1), 0, "Borrow shares should be cleared");
+        assertEq(IERC20(collateralToken).balanceOf(address2), 1 ether, "Liquidator should receive collateral");
+    }
+
+    /// @notice Test successful liquidation when position becomes unhealthy
+    /// @dev Verifies that positions can be liquidated when they fall below required health factor
+    function test_Liquidate_UnhealthyPosition() public {
+        // Drop collateral price by 50% to make position unhealthy
+        MockOracle(oracle).setPrice(1000e6); // 1 ETH = 1000 USDC
+
+        // Prepare liquidator
+        vm.startPrank(address2);
+        IERC20(debtToken).approve(address(lendingPool), 1000e6);
+        
+        // Liquidate position
+        lendingPool.liquidate(BORROW_RATE, address1);
+        vm.stopPrank();
+
+        // Verify liquidation results
+        assertEq(lendingPool.getUserCollateral(BORROW_RATE, address1), 0, "Collateral should be transferred to liquidator");
+        assertEq(lendingPool.getUserBorrowShares(BORROW_RATE, address1), 0, "Borrow shares should be cleared");
+        assertEq(IERC20(collateralToken).balanceOf(address2), 1 ether, "Liquidator should receive collateral");
+    }
+
+    /// @notice Test liquidation restrictions
+    /// @dev Verifies that healthy positions cannot be liquidated
+    function test_Liquidate_RevertIf_Invalid() public {
+        // Test cannot liquidate zero address
+        vm.prank(address2);
+        vm.expectRevert(LendingPool.InvalidUser.selector);
+        lendingPool.liquidate(BORROW_RATE, address(0));
+
+        // Test cannot liquidate with inactive borrow rate
+        vm.prank(address2);
+        vm.expectRevert(LendingPool.BorrowRateNotActive.selector);
+        lendingPool.liquidate(10e16, address1);
+    }
+}

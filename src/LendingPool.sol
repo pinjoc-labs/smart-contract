@@ -61,6 +61,14 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @param amount The amount repaid
     event Repay(uint256 borrowRate, address user, uint256 amount);
 
+    /// @notice Emitted when a user's position is liquidated
+    /// @param borrowRate The borrow rate tier
+    /// @param liquidator The liquidator's address
+    /// @param user The user's address
+    /// @param amount The amount of debt tokens liquidated
+    /// @param collateral The amount of collateral tokens liquidated
+    event Liquidate(uint256 borrowRate, address liquidator, address user, uint256 amount, uint256 collateral);
+
     /// @notice Thrown when an invalid borrow rate is provided
     error InvalidBorrowRate();
     /// @notice Thrown when an invalid LTV value is provided
@@ -378,5 +386,26 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @dev This function created because of the limitation of Solidity that does not support dynamic access to mapping from a struct
     function getUserBorrowShares(uint256 borrowRate, address user) public view returns (uint256) { 
         return lendingPoolStates[borrowRate].userBorrowShares[user];
+    }
+
+    /// @notice Liquidates a user's position if it is unhealthy
+    /// @param borrowRate The borrow rate tier to liquidate
+    /// @param user The address of the user to liquidate
+    function liquidate(uint256 borrowRate, address user) external onlyActiveBorrowRate(borrowRate) {
+        if (user == address(0)) revert InvalidUser();
+        if (block.timestamp > info.maturity || !_isHealthy(borrowRate, user)) {
+
+            LendingPoolState storage state = lendingPoolStates[borrowRate];
+            uint256 debt = state.userBorrowShares[user] * state.totalBorrowAssets / state.totalBorrowShares;
+            uint256 collateral = state.userCollaterals[user];
+
+            state.userBorrowShares[user] = 0;
+            state.userCollaterals[user] = 0;
+
+            IERC20(info.debtToken).transferFrom(msg.sender, address(this), debt);
+            IERC20(info.collateralToken).transfer(msg.sender, collateral);
+
+            emit Liquidate(borrowRate, msg.sender, user, lendingPoolStates[borrowRate].userBorrowShares[user], lendingPoolStates[borrowRate].userCollaterals[user]);
+        }
     }
 }
