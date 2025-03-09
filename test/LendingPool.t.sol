@@ -11,7 +11,7 @@ import {PinjocToken} from "../src/PinjocToken.sol";
 
 /// @title LendingPool Base Test Contract
 /// @notice Base contract containing common setup for LendingPool tests
-/// @dev Inherits from Forge's Test contract
+/// @dev Inherits from Forge's Test contract. Sets up a lending pool with 1-year maturity.
 contract LendingPoolTest_Base is Test {
     uint256 public constant BORROW_RATE = 5e16; // 5%
 
@@ -24,7 +24,7 @@ contract LendingPoolTest_Base is Test {
     address public address2;
 
     /// @notice Setup function called before each test
-    /// @dev Creates mock tokens, oracle, and lending pool instance
+    /// @dev Creates mock tokens, oracle, and lending pool instance with 1-year maturity
     function setUp() public virtual {
         // Deploy mock tokens and oracle
         debtToken = address(new MockToken("Mock USDC", "MUSDC", 6));
@@ -216,6 +216,12 @@ contract LendingPoolTest_AddBorrowRate is LendingPoolTest_Base {
         vm.expectRevert(LendingPool.BorrowRateAlreadyExists.selector);
         lendingPool.addBorrowRate(5e16);
         vm.stopPrank();
+
+        // Test cannot add borrow rate after maturity
+        vm.warp(block.timestamp + 365 days + 1);
+        vm.prank(router);
+        vm.expectRevert(LendingPool.MaturityReached.selector);
+        lendingPool.addBorrowRate(5e16);
     }
 }
 
@@ -245,6 +251,12 @@ contract LendingPoolTest_LTV is LendingPoolTest_Base {
         vm.prank(router);
         vm.expectRevert(LendingPool.InvalidLTV.selector);
         lendingPool.setLtv(0);
+
+        // Test cannot set LTV after maturity
+        vm.warp(block.timestamp + 365 days + 1);
+        vm.prank(router);
+        vm.expectRevert(LendingPool.MaturityReached.selector);
+        lendingPool.setLtv(80e16);
     }
 }
 
@@ -293,6 +305,12 @@ contract LendingPoolTest_Supply is LendingPoolTest_Base {
         vm.prank(router);
         vm.expectRevert(LendingPool.BorrowRateNotActive.selector);
         lendingPool.supply(10e16, address1, 1000e6);
+
+        // Test cannot supply after maturity
+        vm.warp(block.timestamp + 365 days + 1);
+        vm.prank(router);
+        vm.expectRevert(LendingPool.MaturityReached.selector);
+        lendingPool.supply(BORROW_RATE, address1, 1000e6);
     }
 }
 
@@ -345,12 +363,18 @@ contract LendingPoolTest_Borrow is LendingPoolTest_Base {
         vm.prank(router);
         vm.expectRevert(LendingPool.InsufficientCollateral.selector);
         lendingPool.borrow(BORROW_RATE, address1, 2000e6); // Try to borrow more than 75% LTV
+
+        // Test cannot borrow after maturity
+        vm.warp(block.timestamp + 365 days + 1);
+        vm.prank(router);
+        vm.expectRevert(LendingPool.MaturityReached.selector);
+        lendingPool.borrow(BORROW_RATE, address1, 1000e6);
     }
 }
 
 /// @title LendingPool Withdraw Tests
 /// @notice Test contract for withdraw functionality
-/// @dev Inherits from LendingPoolTest_Base
+/// @dev Tests withdrawal restrictions before and after maturity
 contract LendingPoolTest_Withdraw is LendingPoolTest_Base {
 
     function setUp() public override {
@@ -361,9 +385,11 @@ contract LendingPoolTest_Withdraw is LendingPoolTest_Base {
         MockToken(debtToken).mint(address(lendingPool), 1000e6);
     }
 
-    /// @notice Test successful withdraw
-    /// @dev Verifies that supplied assets can be withdrawn
+    /// @notice Test successful withdraw after maturity
+    /// @dev Verifies that withdrawals are possible only after maturity date
     function test_Withdraw() public {
+        vm.warp(block.timestamp + 365 days + 1);
+
         vm.startPrank(address1);
         lendingPool.withdraw(BORROW_RATE, 500e6);
         vm.stopPrank();
@@ -377,8 +403,14 @@ contract LendingPoolTest_Withdraw is LendingPoolTest_Base {
     }
 
     /// @notice Test withdraw restrictions
-    /// @dev Verifies that invalid parameters and insufficient shares prevent withdrawal
+    /// @dev Verifies that withdrawals are blocked before maturity and other invalid conditions
     function test_Withdraw_RevertIf_Invalid() public {
+        // Test cannot withdraw before maturity
+        vm.expectRevert(LendingPool.MaturityNotReached.selector);
+        lendingPool.withdraw(BORROW_RATE, 500e6);
+
+        vm.warp(block.timestamp + 365 days + 1);
+
         // Test cannot withdraw zero shares
         vm.prank(address1);
         vm.expectRevert(LendingPool.InvalidAmount.selector);
@@ -460,12 +492,18 @@ contract LendingPoolTest_Collateral is LendingPoolTest_Base {
         vm.prank(address1);
         vm.expectRevert(LendingPool.InsufficientCollateral.selector);
         lendingPool.withdrawCollateral(BORROW_RATE, 0.8 ether);
+
+        // Test cannot supply collateral after maturity
+        vm.warp(block.timestamp + 365 days + 1);
+        vm.prank(router);
+        vm.expectRevert(LendingPool.MaturityReached.selector);
+        lendingPool.supplyCollateral(BORROW_RATE, address1, 1 ether);
     }
 }
 
 /// @title LendingPool Interest Tests
 /// @notice Test contract for interest accrual functionality
-/// @dev Inherits from LendingPoolTest_Base
+/// @dev Tests both regular interest accrual and maturity-capped interest
 contract LendingPoolTest_Interest is LendingPoolTest_Base {
     function setUp() public override {
         super.setUp();
@@ -476,20 +514,38 @@ contract LendingPoolTest_Interest is LendingPoolTest_Base {
     }
 
     /// @notice Test interest accrual over time
-    /// @dev Verifies that interest is correctly accrued after one year
+    /// @dev Verifies that interest is correctly accrued within maturity period
     function test_InterestAccrual() public {
         // Move forward 1 year
         vm.warp(block.timestamp + 365 days);
 
         // This should trigger interest accrual
-        setUp_Supply(BORROW_RATE, address1, 1e6);
-        setUp_Borrow(BORROW_RATE, address2, 1e6);
-
+        lendingPool.accrueInterest(BORROW_RATE);
         (,uint256 totalSupplyAssets,, uint256 totalBorrowAssets,,,) = lendingPool.lendingPoolStates(BORROW_RATE);
         
         // After 1 year at 5% interest rate
-        assertEq(totalBorrowAssets, 1051e6, "Borrow assets should accrue interest");
-        assertEq(totalSupplyAssets, 1051e6, "Supply assets should match borrow assets");
+        assertEq(totalBorrowAssets, 1050e6, "Borrow assets should accrue interest");
+        assertEq(totalSupplyAssets, 1050e6, "Supply assets should match borrow assets");
+    }
+
+    /// @notice Test interest accrual is capped at maturity
+    /// @dev Verifies that no additional interest accrues after maturity date
+    function test_InterestAccrual_CappedAtMaturity() public {
+        // Move to just before maturity (364 days)
+        vm.warp(block.timestamp + 365 days);
+        
+        // Record state before maturity
+        lendingPool.accrueInterest(BORROW_RATE);
+        (,uint256 totalSupplyAssetsBefore,, uint256 totalBorrowAssetsBefore,,,) = lendingPool.lendingPoolStates(BORROW_RATE);
+        
+        // Move 2 days past maturity (366 days total)
+        vm.warp(block.timestamp + 1 days);
+        lendingPool.accrueInterest(BORROW_RATE);
+        (,uint256 totalSupplyAssetsAfter,, uint256 totalBorrowAssetsAfter,,,) = lendingPool.lendingPoolStates(BORROW_RATE);
+        
+        // Account for the 100e6 repayment and verify only 1 day of interest was added
+        assertEq(totalBorrowAssetsAfter, totalBorrowAssetsBefore, "Interest should only accrue up to maturity");
+        assertEq(totalSupplyAssetsAfter, totalSupplyAssetsBefore, "Supply assets should match borrow assets with interest");
     }
 }
 
@@ -538,12 +594,18 @@ contract LendingPoolTest_Repay is LendingPoolTest_Base {
         vm.prank(address1);
         vm.expectRevert(LendingPool.InsufficientBorrowShares.selector);
         lendingPool.repay(BORROW_RATE, 2000e6);
+
+        // Test cannot repay after maturity
+        vm.warp(block.timestamp + 365 days + 1);
+        vm.prank(address1);
+        vm.expectRevert(LendingPool.MaturityReached.selector);
+        lendingPool.repay(BORROW_RATE, 1000e6);
     }
 }
 
 /// @title LendingPool Liquidate Tests
 /// @notice Test contract for liquidation functionality
-/// @dev Inherits from LendingPoolTest_Base
+/// @dev Tests liquidations both after maturity and for unhealthy positions
 contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
     function setUp() public override {
         super.setUp();
@@ -559,7 +621,7 @@ contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
     }
 
     /// @notice Test successful liquidation after maturity
-    /// @dev Verifies that positions can be liquidated after maturity date
+    /// @dev Verifies that any position can be liquidated after maturity regardless of health
     function test_Liquidate_AfterMaturity() public {
         // Move past maturity
         vm.warp(block.timestamp + 366 days);
@@ -579,7 +641,7 @@ contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
     }
 
     /// @notice Test successful liquidation when position becomes unhealthy
-    /// @dev Verifies that positions can be liquidated when they fall below required health factor
+    /// @dev Verifies that unhealthy positions can be liquidated even before maturity
     function test_Liquidate_UnhealthyPosition() public {
         // Drop collateral price by 50% to make position unhealthy
         MockOracle(oracle).setPrice(1000e6); // 1 ETH = 1000 USDC
@@ -599,7 +661,7 @@ contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
     }
 
     /// @notice Test liquidation restrictions
-    /// @dev Verifies that healthy positions cannot be liquidated
+    /// @dev Verifies that healthy positions cannot be liquidated before maturity
     function test_Liquidate_RevertIf_Invalid() public {
         // Test cannot liquidate zero address
         vm.prank(address2);

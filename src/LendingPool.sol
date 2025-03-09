@@ -10,8 +10,8 @@ import {PinjocToken} from "./PinjocToken.sol";
 import {IMockOracle} from "./interfaces/IMockOracle.sol";
 
 /// @title LendingPool - A P2P lending pool contract with CLOB (Central Limit Order Book)
-/// @notice This contract manages lending and borrowing operations with multiple borrow rates
-/// @dev Implements collateralized lending with interest accrual and health factor checks
+/// @notice This contract manages lending and borrowing operations with multiple borrow rates and maturity-based restrictions
+/// @dev Implements collateralized lending with interest accrual, health factor checks, and maturity-based access control
 contract LendingPool is Ownable, ReentrancyGuard {
 
     /// @notice Emitted when a new borrow rate is added to the lending pool
@@ -75,6 +75,10 @@ contract LendingPool is Ownable, ReentrancyGuard {
     error InvalidLTV();
     /// @notice Thrown when invalid lending pool information is provided
     error InvalidLendingPoolInfo();
+    /// @notice Thrown when an operation is attempted after maturity date
+    error MaturityReached();
+    /// @notice Thrown when a withdrawal is attempted before maturity date
+    error MaturityNotReached();
     /// @notice Thrown when attempting to add a borrow rate that already exists
     error BorrowRateAlreadyExists();
     /// @notice Thrown when attempting to interact with an inactive borrow rate
@@ -99,14 +103,21 @@ contract LendingPool is Ownable, ReentrancyGuard {
         _;
     }
 
+    /// @notice Modifier to check if the current timestamp is before maturity
+    /// @dev Reverts with MaturityReached if the current time is past maturity
+    modifier onlyBeforeMaturity() {
+        if (block.timestamp > info.maturity) revert MaturityReached();
+        _;
+    }
+
     /// @notice Structure holding the lending pool's configuration
     /// @param debtToken Address of the token that can be borrowed
     /// @param collateralToken Address of the token that can be used as collateral
     /// @param oracle Address of the price oracle for the collateral token
-    /// @param maturity Timestamp when the lending pool matures
-    /// @param maturityMonth String representation of the maturity month
-    /// @param maturityYear Year of maturity
-    /// @param ltv Loan-to-Value ratio in 1e18 format
+    /// @param maturity Timestamp when the lending pool matures (after this, no new positions can be opened)
+    /// @param maturityMonth String representation of the maturity month (e.g., "MAY")
+    /// @param maturityYear Year when the lending pool matures
+    /// @param ltv Loan-to-Value ratio in 1e18 format (e.g., 75% = 75e16)
     struct LendingPoolInfo {
         address debtToken;
         address collateralToken;
@@ -166,7 +177,7 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @notice Adds a new borrow rate tier to the lending pool
     /// @param borrowRate_ The borrow rate to add (in 1e18 format, e.g., 5% = 5e16)
     /// @dev Creates a new PinjocToken contract for this borrow rate tier
-    function addBorrowRate(uint256 borrowRate_) external onlyOwner {
+    function addBorrowRate(uint256 borrowRate_) external onlyOwner onlyBeforeMaturity {
         if (lendingPoolStates[borrowRate_].isActive) revert BorrowRateAlreadyExists();
         if (borrowRate_ == 0 || borrowRate_ == 100e16) revert InvalidBorrowRate();
 
@@ -190,7 +201,7 @@ contract LendingPool is Ownable, ReentrancyGuard {
     
     /// @notice Updates the Loan-to-Value (LTV) ratio for the lending pool
     /// @param ltv_ The new LTV value (in 1e18 format)
-    function setLtv(uint256 ltv_) external onlyOwner {
+    function setLtv(uint256 ltv_) external onlyOwner onlyBeforeMaturity {
         if (ltv_ == 0) revert InvalidLTV();
         info.ltv = ltv_;
 
@@ -202,10 +213,10 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @param user Address of the supplier
     /// @param amount Amount of assets being supplied
     /// @dev Only callable by the router contract. Mints PinjocTokens to the supplier.
-    function supply(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) {
+    function supply(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) onlyBeforeMaturity {
         if (user == address(0)) revert InvalidUser();
         if (amount == 0) revert InvalidAmount();
-        _accrueInterest(borrowRate);
+        accrueInterest(borrowRate);
 
         LendingPoolState storage state = lendingPoolStates[borrowRate];
 
@@ -230,10 +241,10 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @param user Address of the borrower
     /// @param amount Amount of assets being borrowed
     /// @dev Only callable by the router contract. Checks borrower's health factor.
-    function borrow(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) {
+    function borrow(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) onlyBeforeMaturity {
         if (user == address(0)) revert InvalidUser();
         if (amount == 0) revert InvalidAmount();
-        _accrueInterest(borrowRate);
+        accrueInterest(borrowRate);
 
         LendingPoolState storage state = lendingPoolStates[borrowRate];
 
@@ -256,12 +267,14 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @notice Allows lenders to withdraw their supplied assets
     /// @param borrowRate The borrow rate tier to withdraw from
     /// @param shares Amount of shares to withdraw
-    /// @dev Burns PinjocTokens and transfers underlying assets to the withdrawer
+    /// @dev Only callable after maturity. Burns PinjocTokens and transfers underlying assets.
     function withdraw(uint256 borrowRate, uint256 shares) external nonReentrant onlyActiveBorrowRate(borrowRate) {
         if (shares == 0) revert InvalidAmount();
+        if (block.timestamp < info.maturity) revert MaturityNotReached();
+
         LendingPoolState storage state = lendingPoolStates[borrowRate];
         if (IERC20(state.pinjocToken).balanceOf(msg.sender) < shares) revert InsufficientShares();
-        _accrueInterest(borrowRate);
+        accrueInterest(borrowRate);
 
         // this calculates automatically with the interest
         uint256 amount = (shares * state.totalSupplyAssets) / state.totalSupplyShares;
@@ -282,10 +295,10 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @param user Address of the collateral supplier
     /// @param amount Amount of collateral being supplied
     /// @dev Only callable by the router contract
-    function supplyCollateral(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) {
+    function supplyCollateral(uint256 borrowRate, address user, uint256 amount) external onlyOwner nonReentrant onlyActiveBorrowRate(borrowRate) onlyBeforeMaturity {
         if (user == address(0)) revert InvalidUser();
         if (amount == 0) revert InvalidAmount();
-        _accrueInterest(borrowRate);
+        accrueInterest(borrowRate);
 
         LendingPoolState storage state = lendingPoolStates[borrowRate];
         state.userCollaterals[user] += amount;
@@ -302,7 +315,7 @@ contract LendingPool is Ownable, ReentrancyGuard {
 
         LendingPoolState storage state = lendingPoolStates[borrowRate];
         if (state.userCollaterals[msg.sender] < amount) revert InsufficientCollateral();
-        _accrueInterest(borrowRate);
+        accrueInterest(borrowRate);
 
         state.userCollaterals[msg.sender] -= amount;
 
@@ -317,9 +330,9 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @param borrowRate The borrow rate tier to repay
     /// @param amount Amount of borrow shares to repay
     /// @dev Transfers debt tokens from the borrower to the contract
-    function repay(uint256 borrowRate, uint256 amount) external nonReentrant onlyActiveBorrowRate(borrowRate) {
+    function repay(uint256 borrowRate, uint256 amount) external nonReentrant onlyActiveBorrowRate(borrowRate) onlyBeforeMaturity {
         if (amount == 0) revert InvalidAmount();
-        _accrueInterest(borrowRate);
+        accrueInterest(borrowRate);
         
         LendingPoolState storage state = lendingPoolStates[borrowRate];
         if (state.userBorrowShares[msg.sender] < amount) revert InsufficientBorrowShares();
@@ -335,19 +348,29 @@ contract LendingPool is Ownable, ReentrancyGuard {
         emit Repay(borrowRate, msg.sender, borrowAmount);
     }
 
-    /// @notice Accrues interest for a specific borrow rate tier
+    /// @notice Accrues interest for a specific borrow rate tier, capped at maturity
     /// @param borrowRate The borrow rate tier to accrue interest for
-    /// @dev Calculates interest based on time elapsed since last accrual
-    function _accrueInterest(uint256 borrowRate) internal {
+    /// @dev Interest only accrues up to maturity date, even if called after maturity
+    function accrueInterest(uint256 borrowRate) public {
         LendingPoolState storage state = lendingPoolStates[borrowRate];
         uint256 interestPerYear = state.totalBorrowAssets * borrowRate / 1e18;
-        uint256 timePassed = block.timestamp - state.lastAccrued;
+        
+        // Cap time passed at maturity
+        uint256 timePassed;
+        uint256 maxLastTimestamp;
+        if (block.timestamp > info.maturity) {
+            timePassed = info.maturity - state.lastAccrued;
+            maxLastTimestamp = info.maturity;
+        } else {
+            timePassed = block.timestamp - state.lastAccrued;
+            maxLastTimestamp = block.timestamp;
+        }
 
         uint256 interest = (interestPerYear * timePassed) / 365 days;
 
         state.totalSupplyAssets += interest;
         state.totalBorrowAssets += interest;
-        state.lastAccrued = block.timestamp;
+        state.lastAccrued = maxLastTimestamp;
     }
 
     /// @notice Checks if a user's position is healthy (not subject to liquidation)
@@ -388,9 +411,10 @@ contract LendingPool is Ownable, ReentrancyGuard {
         return lendingPoolStates[borrowRate].userBorrowShares[user];
     }
 
-    /// @notice Liquidates a user's position if it is unhealthy
+    /// @notice Liquidates a user's position if it is unhealthy or after maturity
     /// @param borrowRate The borrow rate tier to liquidate
     /// @param user The address of the user to liquidate
+    /// @dev Position can be liquidated if either: 1) It's past maturity, or 2) Position is unhealthy
     function liquidate(uint256 borrowRate, address user) external onlyActiveBorrowRate(borrowRate) {
         if (user == address(0)) revert InvalidUser();
         if (block.timestamp > info.maturity || !_isHealthy(borrowRate, user)) {
