@@ -20,10 +20,10 @@ contract LendingOrderBook is Ownable {
     }
 
     /// @notice Represents the side of an order
-    /// @dev BUY represents lenders, SELL represents borrowers
+    /// @dev LEND represents lenders, BORROW represents borrowers
     enum Side {
-        BUY,   // Lender providing debt tokens
-        SELL   // Borrower providing collateral
+        LEND,   // Lender providing debt tokens
+        BORROW   // Borrower providing collateral
     }
 
     /// @notice Detailed information about an order in the book
@@ -31,10 +31,10 @@ contract LendingOrderBook is Ownable {
     struct Order {
         uint256 id;                // Unique identifier for the order
         address trader;            // Address that placed the order
-        uint256 amount;            // Amount of tokens (quote for BUY, base for SELL)
-        uint256 collateralAmount;  // Amount of collateral (only for SELL orders)
+        uint256 amount;            // Amount of tokens (quote for LEND, base for BORROW)
+        uint256 collateralAmount;  // Amount of collateral (only for BORROW orders)
         uint256 price;             // Interest rate in basis points (e.g., 500 = 5%)
-        Side side;                 // BUY (lend) or SELL (borrow)
+        Side side;                 // LEND (lend) or BORROW (borrow)
         Status status;             // Current state of the order
     }
 
@@ -123,7 +123,7 @@ contract LendingOrderBook is Ownable {
         // Since price is rate, then range will be from 0.5% (5e15) to 99.5% (995e15)
         // We increment by 0.5% (5e15)
         for (uint256 price = 5e15; price < 995e15; price+=5e15) {
-            Order[] storage orders = orderQueue[price][Side.BUY];
+            Order[] storage orders = orderQueue[price][Side.LEND];
             for (uint256 i = 0; i < orders.length; i++) {
                 if (orders[i].status == Status.OPEN) {
                     lowestPrice = price;
@@ -137,7 +137,7 @@ contract LendingOrderBook is Ownable {
         // Only update and emit if price changed
         if (bestBuyPrice != lowestPrice) {
             bestBuyPrice = lowestPrice;
-            emit BestPriceUpdated(lowestPrice, Side.BUY);
+            emit BestPriceUpdated(lowestPrice, Side.LEND);
         }
     }
 
@@ -153,7 +153,7 @@ contract LendingOrderBook is Ownable {
     /// @param amount Amount of tokens to lend/borrow
     /// @param collateralAmount Amount of collateral (for SELL orders)
     /// @param price Interest rate in basis points
-    /// @param side BUY (lend) or SELL (borrow)
+    /// @param side LEND (lend) or BORROW (borrow)
     /// @return matchedBuyOrders Array of matched lending orders
     /// @return matchedSellOrders Array of matched borrowing orders
     function placeOrder(
@@ -166,14 +166,14 @@ contract LendingOrderBook is Ownable {
         // ---------------------------
         // 1. Transfer tokens to escrow
         // ---------------------------
-        if (side == Side.BUY) {
+        if (side == Side.LEND) {
             // LEND => deposit quoteToken
             require(
                 quoteToken.transferFrom(msg.sender, address(this), amount),
                 "quoteToken transfer failed"
             );
             quoteBalances[trader] += amount;
-            emit Deposit(trader, amount, Side.BUY);
+            emit Deposit(trader, amount, Side.LEND);
         } else {
             // BORROW => deposit baseToken
             require(
@@ -181,7 +181,7 @@ contract LendingOrderBook is Ownable {
                 "baseToken transfer failed"
             );
             baseBalances[trader] += collateralAmount;
-            emit Deposit(trader, collateralAmount, Side.SELL);
+            emit Deposit(trader, collateralAmount, Side.BORROW);
         }
 
         // ---------------------------
@@ -209,7 +209,7 @@ contract LendingOrderBook is Ownable {
         uint256 sellMatchCount = 0;
 
         // Opposite side
-        Side oppositeSide = (side == Side.BUY) ? Side.SELL : Side.BUY;
+        Side oppositeSide = (side == Side.LEND) ? Side.BORROW : Side.LEND;
         Order[] storage oppQueue = orderQueue[price][oppositeSide];
 
         // Keep track of total matched for the newOrder
@@ -252,7 +252,7 @@ contract LendingOrderBook is Ownable {
 
                 // store matchOrder details
                 _storeMatchInfo(matchOrder, matchedAmt, originalMatchAmt, tempBuyMatches, tempSellMatches, buyMatchCount, sellMatchCount);
-                if (matchOrder.side == Side.BUY) {
+                if (matchOrder.side == Side.LEND) {
                     buyMatchCount++;
                 } else {
                     sellMatchCount++;
@@ -275,7 +275,7 @@ contract LendingOrderBook is Ownable {
 
                 // matchOrder
                 _storeMatchInfo(matchOrder, matchedAmt, originalMatchAmt, tempBuyMatches, tempSellMatches, buyMatchCount, sellMatchCount);
-                if (matchOrder.side == Side.BUY) {
+                if (matchOrder.side == Side.LEND) {
                     buyMatchCount++;
                 } else {
                     sellMatchCount++;
@@ -325,8 +325,8 @@ contract LendingOrderBook is Ownable {
                 status: newOrder.status
             });
 
-            // If newOrder is BUY, add to buy array; else to sell array
-            if (newOrder.side == Side.BUY) {
+            // If newOrder is LEND, add to buy array; else to sell array
+            if (newOrder.side == Side.LEND) {
                 tempBuyMatches[buyMatchCount] = newOrderInfo;
                 buyMatchCount++;
             } else {
@@ -365,10 +365,10 @@ contract LendingOrderBook is Ownable {
         }
 
         // After matching logic, update best price if this is a buy order
-        if (side == Side.BUY && newOrder.status == Status.OPEN) {
+        if (side == Side.LEND && newOrder.status == Status.OPEN) {
             if (price < bestBuyPrice) {
                 bestBuyPrice = price;
-                emit BestPriceUpdated(price, Side.BUY);
+                emit BestPriceUpdated(price, Side.LEND);
             }
         }
 
@@ -402,13 +402,13 @@ contract LendingOrderBook is Ownable {
                     );
 
                     // If this was a buy order and potentially the best price, update best price
-                    if (orderFound.side == Side.BUY && orderFound.price == bestBuyPrice) {
+                    if (orderFound.side == Side.LEND && orderFound.price == bestBuyPrice) {
                         _updateBestBuyPrice();
                     }
                 }
 
                 // Refund escrow
-                if (orderFound.side == Side.BUY) {
+                if (orderFound.side == Side.LEND) {
                     uint256 refundAmt = orderFound.amount;
                     require(quoteBalances[trader] >= refundAmt, "Insufficient quote escrow");
                     quoteBalances[trader] -= refundAmt;
@@ -436,7 +436,7 @@ contract LendingOrderBook is Ownable {
         uint256 amount,
         Side side
     ) external onlyOwner {
-        if (side == Side.BUY) {
+        if (side == Side.LEND) {
             require(quoteBalances[from] >= amount, "Not enough quote escrow");
             quoteBalances[from] -= amount;
             require(quoteToken.transfer(to, amount), "Transfer failed");
@@ -487,7 +487,7 @@ contract LendingOrderBook is Ownable {
             status: matchOrder.status
         });
 
-        if (matchOrder.side == Side.BUY) {
+        if (matchOrder.side == Side.LEND) {
             buyArr[buyCount] = info;
         } else {
             sellArr[sellCount] = info;

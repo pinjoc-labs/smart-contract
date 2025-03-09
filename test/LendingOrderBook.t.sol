@@ -70,7 +70,7 @@ contract LendingOrderBookTest_Base is Test {
         uint256 price
     ) internal returns (LendingOrderBook.MatchedInfo[] memory buyMatches, LendingOrderBook.MatchedInfo[] memory sellMatches) {
         vm.prank(trader);
-        return book.placeOrder(trader, amount, 0, price, LendingOrderBook.Side.BUY);
+        return book.placeOrder(trader, amount, 0, price, LendingOrderBook.Side.LEND);
     }
 
     /// @notice Helper to place a sell (borrow) order
@@ -81,7 +81,7 @@ contract LendingOrderBookTest_Base is Test {
         uint256 price
     ) internal returns (LendingOrderBook.MatchedInfo[] memory buyMatches, LendingOrderBook.MatchedInfo[] memory sellMatches) {
         vm.prank(trader);
-        return book.placeOrder(trader, amount, collateralAmount, price, LendingOrderBook.Side.SELL);
+        return book.placeOrder(trader, amount, collateralAmount, price, LendingOrderBook.Side.BORROW);
     }
 
     /// @notice Helper to verify order details
@@ -125,7 +125,7 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
             DEFAULT_AMOUNT,
             0, // no collateral for buy orders
             DEFAULT_PRICE,
-            LendingOrderBook.Side.BUY,
+            LendingOrderBook.Side.LEND,
             LendingOrderBook.Status.OPEN
         );
 
@@ -147,7 +147,7 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
             DEFAULT_AMOUNT,
             DEFAULT_COLLATERAL,
             DEFAULT_PRICE,
-            LendingOrderBook.Side.SELL,
+            LendingOrderBook.Side.BORROW,
             LendingOrderBook.Status.OPEN
         );
 
@@ -321,7 +321,7 @@ contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
 
         // Transfer quote tokens
         vm.prank(owner);
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.BUY);
+        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.LEND);
 
         // Verify balances
         assertEq(book.quoteBalances(lender), 0);
@@ -334,7 +334,7 @@ contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
 
         // Transfer base tokens
         vm.prank(owner);
-        book.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingOrderBook.Side.SELL);
+        book.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingOrderBook.Side.BORROW);
 
         // Verify balances
         assertEq(book.baseBalances(borrower), 0);
@@ -344,16 +344,16 @@ contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
     function test_Transfer_RevertIf_NotOwner() public {
         vm.prank(lender);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.BUY);
+        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.LEND);
     }
 
     function test_Transfer_RevertIf_InsufficientBalance() public {
         vm.prank(owner);
         vm.expectRevert("Not enough quote escrow");
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.BUY);
+        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.LEND);
 
         vm.prank(owner);
         vm.expectRevert("Not enough base escrow");
-        book.transferFrom(borrower, lender, DEFAULT_AMOUNT, LendingOrderBook.Side.SELL);
+        book.transferFrom(borrower, lender, DEFAULT_AMOUNT, LendingOrderBook.Side.BORROW);
     }
 }
