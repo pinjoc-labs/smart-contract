@@ -429,6 +429,8 @@ contract LendingPool is Ownable, ReentrancyGuard {
             uint256 debt = state.userBorrowShares[user] * state.totalBorrowAssets / state.totalBorrowShares;
             uint256 collateral = state.userCollaterals[user];
 
+            state.totalBorrowShares -= state.userBorrowShares[user];
+            state.totalBorrowAssets -= debt;
             state.userBorrowShares[user] = 0;
             state.userCollaterals[user] = 0;
 
