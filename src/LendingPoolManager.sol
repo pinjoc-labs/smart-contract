@@ -58,6 +58,7 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
     /// @param maturityMonth_ The month when the pool matures (e.g., "MAY")
     /// @param maturityYear_ The year when the pool matures
     /// @param ltv_ The loan-to-value ratio in 1e18 format (e.g., 75% = 75e16)
+    /// @return The address of the created lending pool
     function createLendingPool(
         address debtToken_,
         address collateralToken_,
@@ -66,7 +67,7 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
         string memory maturityMonth_,
         uint256 maturityYear_,
         uint256 ltv_
-    ) external onlyOwner nonReentrant {
+    ) external onlyOwner nonReentrant returns (address) {
         bytes32 key = _generateLendingPoolKey(debtToken_, collateralToken_, maturityMonth_, maturityYear_);
         if (address(lendingPools[key]) != address(0)) revert LendingPoolAlreadyExists();
         LendingPool.LendingPoolInfo memory info = LendingPool.LendingPoolInfo({
@@ -79,8 +80,9 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
             ltv: ltv_
         });
         lendingPools[key] = new LendingPool(msg.sender, info);
-
         emit LendingPoolCreated(address(lendingPools[key]), msg.sender, info);
+
+        return address(lendingPools[key]);
     }
 
     /// @notice Retrieves the address of a lending pool based on its parameters

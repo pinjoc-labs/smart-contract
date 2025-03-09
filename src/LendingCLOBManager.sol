@@ -63,12 +63,14 @@ contract LendingCLOBManager is Ownable, ReentrancyGuard {
         address collateralToken_,
         string memory maturityMonth_,
         uint256 maturityYear_
-    ) external onlyOwner nonReentrant {
+    ) external onlyOwner nonReentrant returns (address) {
         bytes32 key = _generateLendingCLOBKey(debtToken_, collateralToken_, maturityMonth_, maturityYear_);
         if (address(lendingCLOB[key]) != address(0)) revert LendingCLOBAlreadyExists();
         lendingCLOB[key] = new LendingCLOB(msg.sender, debtToken_, collateralToken_, maturityMonth_, maturityYear_);
 
         emit LendingCLOBCreated(address(lendingCLOB[key]), msg.sender, debtToken_, collateralToken_, maturityMonth_, maturityYear_);
+
+        return address(lendingCLOB[key]);
     }
 
     /// @notice Retrieves the address of a lending CLOB based on its parameters

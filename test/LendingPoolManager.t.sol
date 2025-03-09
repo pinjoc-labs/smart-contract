@@ -54,8 +54,8 @@ contract LendingPoolManagerTest_Base is Test {
 
     /// @notice Helper function to create a lending pool with default parameters
     /// @dev Uses predefined parameters for maturity, LTV, and tokens
-    function setUp_CreatePool() public {
-        manager.createLendingPool(
+    function setUp_CreatePool() public returns (address) {
+        return manager.createLendingPool(
             debtToken,
             collateralToken,
             oracle,
@@ -75,8 +75,7 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
     /// @dev Verifies that a pool can be created with valid parameters and all parameters are set correctly
     function test_CreateLendingPool() public {
         vm.prank(owner);
-        setUp_CreatePool();
-        address poolAddress = manager.getLendingPool(debtToken, collateralToken, maturityMonth, maturityYear);
+        address poolAddress = setUp_CreatePool();
         assertTrue(poolAddress != address(0), "Pool should be created");
 
         LendingPool pool = LendingPool(poolAddress);
@@ -126,8 +125,7 @@ contract LendingPoolManagerTest_GetLendingPool is LendingPoolManagerTest_Base {
     /// @dev Verifies that pool addresses can be retrieved and pool parameters match creation values
     function test_GetLendingPool() public {
         vm.prank(owner);
-        setUp_CreatePool();
-        address poolAddress = manager.getLendingPool(debtToken, collateralToken, maturityMonth, maturityYear);
+        address poolAddress = setUp_CreatePool();
 
         LendingPool pool = LendingPool(poolAddress);
         (

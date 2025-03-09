@@ -46,8 +46,8 @@ contract LendingCLOBManagerTest_Base is Test {
 
     /// @notice Helper function to create a lending CLOB with default parameters
     /// @dev Uses predefined parameters for maturity and tokens
-    function setUp_CreateCLOB() public {
-        manager.createLendingCLOB(
+    function setUp_CreateCLOB() public returns (address) {
+        return manager.createLendingCLOB(
             debtToken,
             collateralToken,
             maturityMonth,
@@ -64,8 +64,7 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
     /// @dev Verifies that a CLOB can be created with valid parameters and all parameters are set correctly
     function test_CreateLendingCLOB() public {
         vm.prank(owner);
-        setUp_CreateCLOB();
-        address clobAddress = manager.getLendingCLOB(debtToken, collateralToken, maturityMonth, maturityYear);
+        address clobAddress = setUp_CreateCLOB();
         assertTrue(clobAddress != address(0), "CLOB should be created");
 
         LendingCLOB clob = LendingCLOB(clobAddress);
@@ -103,8 +102,8 @@ contract LendingCLOBManagerTest_GetLendingCLOB is LendingCLOBManagerTest_Base {
     /// @dev Verifies that CLOB addresses can be retrieved and CLOB parameters match creation values
     function test_GetLendingCLOB() public {
         vm.prank(owner);
-        setUp_CreateCLOB();
-        address clobAddress = manager.getLendingCLOB(debtToken, collateralToken, maturityMonth, maturityYear);
+        address clobAddress = setUp_CreateCLOB();
+        address retrievedClobAddress = manager.getLendingCLOB(debtToken, collateralToken, maturityMonth, maturityYear);
 
         LendingCLOB clob = LendingCLOB(clobAddress);
 
