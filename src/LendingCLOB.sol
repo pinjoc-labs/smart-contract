@@ -4,10 +4,10 @@ pragma solidity ^0.8.0;
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-/// @title LendingOrderBook - A Central Limit Order Book (CLOB) for P2P lending
+/// @title LendingCLOB - A Central Limit Order Book (CLOB) for P2P lending
 /// @notice Manages lending and borrowing orders with price-time priority matching
 /// @dev Implements a two-sided order book where BUY = LEND and SELL = BORROW
-contract LendingOrderBook is Ownable {
+contract LendingCLOB is Ownable {
 
     /// @notice Represents the current state of an order
     /// @dev Used to track order lifecycle and matching status
@@ -107,10 +107,10 @@ contract LendingOrderBook is Ownable {
     /// @notice Creates a new lending order book
     /// @param _quoteToken Address of the debt token
     /// @param _baseToken Address of the collateral token
-    constructor(address _quoteToken, address _baseToken) Ownable(msg.sender) {
+    constructor(address _router, address _quoteToken, address _baseToken) Ownable(_router) {
         quoteToken = IERC20(_quoteToken);
         baseToken = IERC20(_baseToken);
-        bestBuyPrice = type(uint256).max; // Initialize to max value
+        bestBuyPrice = 100e16; // 100%
     }
 
     /// @notice Updates the best buy price based on the order queue
@@ -162,14 +162,14 @@ contract LendingOrderBook is Ownable {
         uint256 collateralAmount,
         uint256 price,
         Side side
-    ) external returns (MatchedInfo[] memory matchedBuyOrders, MatchedInfo[] memory matchedSellOrders) {
+    ) external onlyOwner returns (MatchedInfo[] memory matchedBuyOrders, MatchedInfo[] memory matchedSellOrders) {
         // ---------------------------
         // 1. Transfer tokens to escrow
         // ---------------------------
         if (side == Side.LEND) {
             // LEND => deposit quoteToken
             require(
-                quoteToken.transferFrom(msg.sender, address(this), amount),
+                quoteToken.transferFrom(trader, address(this), amount),
                 "quoteToken transfer failed"
             );
             quoteBalances[trader] += amount;
@@ -177,7 +177,7 @@ contract LendingOrderBook is Ownable {
         } else {
             // BORROW => deposit baseToken
             require(
-                baseToken.transferFrom(msg.sender, address(this), collateralAmount),
+                baseToken.transferFrom(trader, address(this), collateralAmount),
                 "baseToken transfer failed"
             );
             baseBalances[trader] += collateralAmount;
@@ -380,7 +380,7 @@ contract LendingOrderBook is Ownable {
     /// @dev Refunds escrowed tokens and updates order status
     /// @param trader Address of the trader who placed the order
     /// @param orderId ID of the order to cancel
-    function cancelOrder(address trader, uint256 orderId) external {
+    function cancelOrder(address trader, uint256 orderId) external onlyOwner {
         Order[] storage orders = traderOrders[trader];
         for (uint256 i = 0; i < orders.length; i++) {
             if (orders[i].id == orderId && orders[i].status == Status.OPEN) {

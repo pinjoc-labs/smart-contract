@@ -5,12 +5,12 @@ import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IE
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 import {Test} from "forge-std/Test.sol";
-import {LendingOrderBook} from "../src/LendingOrderBook.sol";
+import {LendingCLOB} from "../src/LendingCLOB.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
 
-/// @title LendingOrderBookTest_Base - Base contract for LendingOrderBook tests
-/// @notice Contains common setup and helper functions for testing LendingOrderBook functionality
-contract LendingOrderBookTest_Base is Test {
+/// @title LendingCLOBTest_Base - Base contract for LendingCLOB tests
+/// @notice Contains common setup and helper functions for testing LendingCLOB functionality
+contract LendingCLOBTest_Base is Test {
     // Constants for testing
     uint256 internal constant INITIAL_BALANCE = 1000e18;
     uint256 internal constant DEFAULT_AMOUNT = 100e18;
@@ -18,7 +18,7 @@ contract LendingOrderBookTest_Base is Test {
     uint256 internal constant DEFAULT_PRICE = 50e15; // 5% interest rate
 
     // Test contracts
-    LendingOrderBook internal book;
+    LendingCLOB internal book;
     MockToken internal quoteToken;
     MockToken internal baseToken;
 
@@ -37,9 +37,9 @@ contract LendingOrderBookTest_Base is Test {
         lender = makeAddr("lender");
         borrower = makeAddr("borrower");
 
-        // Deploy LendingOrderBook
+        // Deploy LendingCLOB
         vm.prank(owner);
-        book = new LendingOrderBook(address(quoteToken), address(baseToken));
+        book = new LendingCLOB(owner, address(quoteToken), address(baseToken));
 
         // Setup initial balances
         _setupBalances();
@@ -68,9 +68,9 @@ contract LendingOrderBookTest_Base is Test {
         address trader,
         uint256 amount,
         uint256 price
-    ) internal returns (LendingOrderBook.MatchedInfo[] memory buyMatches, LendingOrderBook.MatchedInfo[] memory sellMatches) {
-        vm.prank(trader);
-        return book.placeOrder(trader, amount, 0, price, LendingOrderBook.Side.LEND);
+    ) internal returns (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) {
+        vm.prank(owner);
+        return book.placeOrder(trader, amount, 0, price, LendingCLOB.Side.LEND);
     }
 
     /// @notice Helper to place a sell (borrow) order
@@ -79,21 +79,21 @@ contract LendingOrderBookTest_Base is Test {
         uint256 amount,
         uint256 collateralAmount,
         uint256 price
-    ) internal returns (LendingOrderBook.MatchedInfo[] memory buyMatches, LendingOrderBook.MatchedInfo[] memory sellMatches) {
-        vm.prank(trader);
-        return book.placeOrder(trader, amount, collateralAmount, price, LendingOrderBook.Side.BORROW);
+    ) internal returns (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) {
+        vm.prank(owner);
+        return book.placeOrder(trader, amount, collateralAmount, price, LendingCLOB.Side.BORROW);
     }
 
     /// @notice Helper to verify order details
     function _verifyOrder(
-        LendingOrderBook.Order memory order,
+        LendingCLOB.Order memory order,
         uint256 expectedId,
         address expectedTrader,
         uint256 expectedAmount,
         uint256 expectedCollateral,
         uint256 expectedPrice,
-        LendingOrderBook.Side expectedSide,
-        LendingOrderBook.Status expectedStatus
+        LendingCLOB.Side expectedSide,
+        LendingCLOB.Status expectedStatus
     ) internal pure {
         assertEq(order.id, expectedId);
         assertEq(order.trader, expectedTrader);
@@ -105,9 +105,9 @@ contract LendingOrderBookTest_Base is Test {
     }
 }
 
-/// @title LendingOrderBookTest_PlaceOrder - Tests for order placement functionality
+/// @title LendingCLOBTest_PlaceOrder - Tests for order placement functionality
 /// @notice Tests both happy and unhappy paths for placing orders
-contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
+contract LendingCLOBTest_PlaceOrder is LendingCLOBTest_Base {
     function setUp() public override {
         super.setUp();
     }
@@ -116,7 +116,7 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
         _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
 
         // Verify order placement
-        LendingOrderBook.Order[] memory orders = book.getUserOrders(lender);
+        LendingCLOB.Order[] memory orders = book.getUserOrders(lender);
         assertEq(orders.length, 1);
         _verifyOrder(
             orders[0],
@@ -125,8 +125,8 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
             DEFAULT_AMOUNT,
             0, // no collateral for buy orders
             DEFAULT_PRICE,
-            LendingOrderBook.Side.LEND,
-            LendingOrderBook.Status.OPEN
+            LendingCLOB.Side.LEND,
+            LendingCLOB.Status.OPEN
         );
 
         // Verify token transfer
@@ -138,7 +138,7 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
         _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
 
         // Verify order placement
-        LendingOrderBook.Order[] memory orders = book.getUserOrders(borrower);
+        LendingCLOB.Order[] memory orders = book.getUserOrders(borrower);
         assertEq(orders.length, 1);
         _verifyOrder(
             orders[0],
@@ -147,8 +147,8 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
             DEFAULT_AMOUNT,
             DEFAULT_COLLATERAL,
             DEFAULT_PRICE,
-            LendingOrderBook.Side.BORROW,
-            LendingOrderBook.Status.OPEN
+            LendingCLOB.Side.BORROW,
+            LendingCLOB.Status.OPEN
         );
 
         // Verify token transfer
@@ -166,11 +166,21 @@ contract LendingOrderBookTest_PlaceOrder is LendingOrderBookTest_Base {
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, borrower, INITIAL_BALANCE, tooMuchAmount));
         _placeSellOrder(borrower, DEFAULT_AMOUNT, tooMuchAmount, DEFAULT_PRICE);
     }
+
+    function test_PlaceOrder_RevertIf_NotOwner() public {
+        vm.prank(lender);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
+        book.placeOrder(lender, DEFAULT_AMOUNT, 0, DEFAULT_PRICE, LendingCLOB.Side.LEND);
+        
+        vm.prank(borrower);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, borrower));
+        book.placeOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE, LendingCLOB.Side.BORROW);
+    }
 }
 
-/// @title LendingOrderBookTest_OrderMatching - Tests for order matching functionality
+/// @title LendingCLOBTest_OrderMatching - Tests for order matching functionality
 /// @notice Tests both happy and unhappy paths for order matching
-contract LendingOrderBookTest_OrderMatching is LendingOrderBookTest_Base {
+contract LendingCLOBTest_OrderMatching is LendingCLOBTest_Base {
     function setUp() public override {
         super.setUp();
     }
@@ -180,7 +190,7 @@ contract LendingOrderBookTest_OrderMatching is LendingOrderBookTest_Base {
         _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
 
         // Place matching sell order
-        (LendingOrderBook.MatchedInfo[] memory buyMatches, LendingOrderBook.MatchedInfo[] memory sellMatches) = 
+        (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) = 
             _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
 
         // Verify matches
@@ -190,12 +200,12 @@ contract LendingOrderBookTest_OrderMatching is LendingOrderBookTest_Base {
         // Verify buy match
         assertEq(buyMatches[0].trader, lender);
         assertEq(buyMatches[0].amount, DEFAULT_AMOUNT);
-        assertTrue(buyMatches[0].status == LendingOrderBook.Status.FILLED);
+        assertTrue(buyMatches[0].status == LendingCLOB.Status.FILLED);
         
         // Verify sell match
         assertEq(sellMatches[0].trader, borrower);
         assertEq(sellMatches[0].amount, DEFAULT_AMOUNT);
-        assertTrue(sellMatches[0].status == LendingOrderBook.Status.FILLED);
+        assertTrue(sellMatches[0].status == LendingCLOB.Status.FILLED);
     }
 
     function test_OrderMatching_PartialMatch() public {
@@ -204,7 +214,7 @@ contract LendingOrderBookTest_OrderMatching is LendingOrderBookTest_Base {
         _placeBuyOrder(lender, largerAmount, DEFAULT_PRICE);
 
         // Place smaller sell order
-        (LendingOrderBook.MatchedInfo[] memory buyMatches, LendingOrderBook.MatchedInfo[] memory sellMatches) = 
+        (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) = 
             _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
 
         // Verify matches
@@ -214,18 +224,18 @@ contract LendingOrderBookTest_OrderMatching is LendingOrderBookTest_Base {
         // Verify buy match (partially filled)
         assertEq(buyMatches[0].trader, lender);
         assertEq(buyMatches[0].amount, largerAmount);
-        assertTrue(buyMatches[0].status == LendingOrderBook.Status.PARTIALLY_FILLED);
+        assertTrue(buyMatches[0].status == LendingCLOB.Status.PARTIALLY_FILLED);
         
         // Verify sell match (fully filled)
         assertEq(sellMatches[0].trader, borrower);
         assertEq(sellMatches[0].amount, DEFAULT_AMOUNT);
-        assertTrue(sellMatches[0].status == LendingOrderBook.Status.FILLED);
+        assertTrue(sellMatches[0].status == LendingCLOB.Status.FILLED);
     }
 }
 
-/// @title LendingOrderBookTest_CancelOrder - Tests for order cancellation functionality
+/// @title LendingCLOBTest_CancelOrder - Tests for order cancellation functionality
 /// @notice Tests both happy and unhappy paths for cancelling orders
-contract LendingOrderBookTest_CancelOrder is LendingOrderBookTest_Base {
+contract LendingCLOBTest_CancelOrder is LendingCLOBTest_Base {
     function setUp() public override {
         super.setUp();
     }
@@ -235,12 +245,12 @@ contract LendingOrderBookTest_CancelOrder is LendingOrderBookTest_Base {
         _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
 
         // Cancel order
-        vm.prank(lender);
+        vm.prank(owner);
         book.cancelOrder(lender, 0);
 
         // Verify order status
-        LendingOrderBook.Order[] memory orders = book.getUserOrders(lender);
-        assertTrue(orders[0].status == LendingOrderBook.Status.CANCELLED);
+        LendingCLOB.Order[] memory orders = book.getUserOrders(lender);
+        assertTrue(orders[0].status == LendingCLOB.Status.CANCELLED);
 
         // Verify token refund
         assertEq(quoteToken.balanceOf(lender), INITIAL_BALANCE);
@@ -252,12 +262,12 @@ contract LendingOrderBookTest_CancelOrder is LendingOrderBookTest_Base {
         _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
 
         // Cancel order
-        vm.prank(borrower);
+        vm.prank(owner);
         book.cancelOrder(borrower, 0);
 
         // Verify order status
-        LendingOrderBook.Order[] memory orders = book.getUserOrders(borrower);
-        assertTrue(orders[0].status == LendingOrderBook.Status.CANCELLED);
+        LendingCLOB.Order[] memory orders = book.getUserOrders(borrower);
+        assertTrue(orders[0].status == LendingCLOB.Status.CANCELLED);
 
         // Verify token refund
         assertEq(baseToken.balanceOf(borrower), INITIAL_BALANCE);
@@ -265,23 +275,29 @@ contract LendingOrderBookTest_CancelOrder is LendingOrderBookTest_Base {
     }
 
     function test_CancelOrder_RevertIf_NotFound() public {
-        vm.prank(lender);
+        vm.prank(owner);
         book.cancelOrder(lender, 999); // Non-existent order ID
         
         // Verify no changes
         assertEq(book.getUserOrders(lender).length, 0);
     }
+
+    function test_CancelOrder_RevertIf_NotOwner() public {
+        vm.prank(lender);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
+        book.cancelOrder(lender, 0);
+    }
 }
 
-/// @title LendingOrderBookTest_BestPrice - Tests for best price tracking functionality
+/// @title LendingCLOBTest_BestPrice - Tests for best price tracking functionality
 /// @notice Tests both happy and unhappy paths for best price updates
-contract LendingOrderBookTest_BestPrice is LendingOrderBookTest_Base {
+contract LendingCLOBTest_BestPrice is LendingCLOBTest_Base {
     function setUp() public override {
         super.setUp();
     }
 
-    function test_BestPrice_Initial() public {
-        assertEq(book.getBestBuyPrice(), type(uint256).max);
+    function test_BestPrice_Initial() public view {
+        assertEq(book.getBestBuyPrice(), 100e16);
     }
 
     function test_BestPrice_Update() public {
@@ -300,7 +316,7 @@ contract LendingOrderBookTest_BestPrice is LendingOrderBookTest_Base {
         _placeBuyOrder(lender, DEFAULT_AMOUNT, 40e15);
         
         // Cancel better order
-        vm.prank(lender);
+        vm.prank(owner);
         book.cancelOrder(lender, 1);
 
         // Best price should update to next best
@@ -308,9 +324,9 @@ contract LendingOrderBookTest_BestPrice is LendingOrderBookTest_Base {
     }
 }
 
-/// @title LendingOrderBookTest_Transfer - Tests for token transfer functionality
+/// @title LendingCLOBTest_Transfer - Tests for token transfer functionality
 /// @notice Tests both happy and unhappy paths for token transfers
-contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
+contract LendingCLOBTest_Transfer is LendingCLOBTest_Base {
     function setUp() public override {
         super.setUp();
     }
@@ -321,7 +337,7 @@ contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
 
         // Transfer quote tokens
         vm.prank(owner);
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.LEND);
+        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
 
         // Verify balances
         assertEq(book.quoteBalances(lender), 0);
@@ -334,7 +350,7 @@ contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
 
         // Transfer base tokens
         vm.prank(owner);
-        book.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingOrderBook.Side.BORROW);
+        book.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingCLOB.Side.BORROW);
 
         // Verify balances
         assertEq(book.baseBalances(borrower), 0);
@@ -344,16 +360,16 @@ contract LendingOrderBookTest_Transfer is LendingOrderBookTest_Base {
     function test_Transfer_RevertIf_NotOwner() public {
         vm.prank(lender);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.LEND);
+        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
     }
 
     function test_Transfer_RevertIf_InsufficientBalance() public {
         vm.prank(owner);
         vm.expectRevert("Not enough quote escrow");
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingOrderBook.Side.LEND);
+        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
 
         vm.prank(owner);
         vm.expectRevert("Not enough base escrow");
-        book.transferFrom(borrower, lender, DEFAULT_AMOUNT, LendingOrderBook.Side.BORROW);
+        book.transferFrom(borrower, lender, DEFAULT_AMOUNT, LendingCLOB.Side.BORROW);
     }
 }
