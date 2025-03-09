@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {MockToken} from "../src/mocks/MockToken.sol";
+import {MockToken} from "../../src/mocks/MockToken.sol";
 
 /// @title MockToken Base Test Contract
 /// @notice Base contract containing common setup for MockToken tests

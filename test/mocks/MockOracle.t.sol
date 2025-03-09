@@ -3,8 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {MockToken} from "../src/mocks/MockToken.sol";
-import {MockOracle} from "../src/mocks/MockOracle.sol";
+import {MockToken} from "../../src/mocks/MockToken.sol";
+import {MockOracle} from "../../src/mocks/MockOracle.sol";
 
 /// @title MockOracle Base Test Contract
 /// @notice Base contract containing common setup for MockOracle tests
