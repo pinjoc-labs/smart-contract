@@ -17,6 +17,11 @@ contract LendingPool is Ownable, ReentrancyGuard {
     /// @notice Emitted when a new borrow rate is added to the lending pool
     /// @param borrowRate The borrow rate that was added
     event BorrowRateAdded(uint256 borrowRate);
+
+    /// @notice Emitted when a new PinjocToken is created
+    /// @param pinjocToken The address of the new PinjocToken
+    /// @param borrowRate The borrow rate that was added
+    event PinjocTokenCreated(address pinjocToken, uint256 borrowRate);
     
     /// @notice Emitted when the LTV ratio is updated
     /// @param ltv The new LTV value
@@ -197,6 +202,7 @@ contract LendingPool is Ownable, ReentrancyGuard {
         ));
 
         emit BorrowRateAdded(borrowRate_);
+        emit PinjocTokenCreated(address(state.pinjocToken), borrowRate_);
     }
     
     /// @notice Updates the Loan-to-Value (LTV) ratio for the lending pool

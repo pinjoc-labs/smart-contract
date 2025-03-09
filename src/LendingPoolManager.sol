@@ -21,10 +21,10 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
     error LendingPoolNotFound();
 
     /// @notice Emitted when a new lending pool is created
-    /// @param key The unique identifier for the lending pool
+    /// @param lendingPool The address of the created lending pool
     /// @param creator The address that created the pool
     /// @param info The configuration parameters of the created pool
-    event LendingPoolCreated(bytes32 key, address indexed creator, LendingPool.LendingPoolInfo info);
+    event LendingPoolCreated(address lendingPool, address indexed creator, LendingPool.LendingPoolInfo info);
 
     /// @notice Mapping from pool key to LendingPool contract
     /// @dev Key is generated from debt token, collateral token, maturity month and year
@@ -80,7 +80,7 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
         });
         lendingPools[key] = new LendingPool(msg.sender, info);
 
-        emit LendingPoolCreated(key, msg.sender, info);
+        emit LendingPoolCreated(address(lendingPools[key]), msg.sender, info);
     }
 
     /// @notice Retrieves the address of a lending pool based on its parameters
