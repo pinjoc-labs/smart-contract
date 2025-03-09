@@ -5,8 +5,8 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @title LendingCLOB - A Central Limit Order Book (CLOB) for P2P lending
-/// @notice Manages lending and borrowing orders with price-time priority matching
-/// @dev Implements a two-sided order book where BUY = LEND and SELL = BORROW
+/// @notice Manages lending and borrowing orders with rate-time priority matching
+/// @dev Implements a two-sided order book where LEND and BORROW
 contract LendingCLOB is Ownable {
 
     /// @notice Represents the current state of an order
@@ -22,8 +22,8 @@ contract LendingCLOB is Ownable {
     /// @notice Represents the side of an order
     /// @dev LEND represents lenders, BORROW represents borrowers
     enum Side {
-        LEND,   // Lender providing debt tokens
-        BORROW   // Borrower providing collateral
+        LEND,   // Lender providing debt token
+        BORROW   // Borrower providing collateral token and amount to borrow
     }
 
     /// @notice Detailed information about an order in the book
@@ -31,24 +31,28 @@ contract LendingCLOB is Ownable {
     struct Order {
         uint256 id;                // Unique identifier for the order
         address trader;            // Address that placed the order
-        uint256 amount;            // Amount of tokens (quote for LEND, base for BORROW)
+        uint256 amount;            // Amount of tokens (debtToken for LEND, borrowed amount for BORROW)
         uint256 collateralAmount;  // Amount of collateral (only for BORROW orders)
-        uint256 price;             // Interest rate in basis points (e.g., 500 = 5%)
-        Side side;                 // LEND (lend) or BORROW (borrow)
+        uint256 rate;             // Interest rate in basis points (e.g., 500 = 5%)
+        Side side;                 // LEND or BORROW
         Status status;             // Current state of the order
     }
 
     /// @notice Information about matched orders
     /// @dev Used to return matching results and track partial fills
     struct MatchedInfo {
-        uint256 orderId;           // ID of the matched order
-        address trader;            // Address of the trader
-        uint256 amount;            // Original order amount
-        uint256 collateralAmount;  // Original collateral amount
-        Side side;                 // Order side
-        uint256 percentMatch;      // Percentage matched (1e18 = 100%)
-        Status status;             // Final status after matching
+        uint256 orderId;                // ID of the matched order
+        address trader;                 // Address of the trader
+        uint256 matchAmount;            // Matched order amount
+        uint256 matchCollateralAmount;  // Matched collateral amount
+        Side side;                      // Order side
+        Status status;                  // Final status after matching
     }
+
+    /// @notice Thrown when a trader has insufficient balance
+    error InsufficientBalance(address trader, IERC20 token, uint256 balance, uint256 amount);
+    /// @notice Thrown when an order is not found
+    error OrderNotFound();
 
     /// @notice Emitted when a new order is placed in the book
     event OrderPlaced(
@@ -56,7 +60,7 @@ contract LendingCLOB is Ownable {
         address indexed trader,
         uint256 amount,
         uint256 collateralAmount,
-        uint256 price,
+        uint256 rate,
         Side side,
         Status status
     );
@@ -68,7 +72,7 @@ contract LendingCLOB is Ownable {
     event OrderMatched(uint256 newOrderId, uint256 matchedOrderId, Status newOrderStatus, Status matchedOrderStatus);
 
     /// @notice Emitted when an order is removed from the queue
-    event OrderRemovedFromQueue(uint256 orderId, uint256 price, Side side);
+    event OrderRemovedFromQueue(uint256 orderId, uint256 rate, Side side);
 
     /// @notice Emitted when tokens are transferred between parties
     event Transfer(address indexed from, address indexed to, uint256 amount, Side side);
@@ -76,111 +80,105 @@ contract LendingCLOB is Ownable {
     /// @notice Emitted when a limit order is cancelled
     event LimitOrderCancelled(uint256 orderId, Status status);
 
-    /// @notice Emitted when the best price changes
-    event BestPriceUpdated(uint256 price, Side side);
+    /// @notice Emitted when the best rate changes
+    event BestRateUpdated(uint256 rate, Side side);
 
     /// @notice Token that can be borrowed (e.g., USDC)
-    IERC20 public immutable quoteToken;
+    IERC20 public immutable debtToken;
 
     /// @notice Token used as collateral (e.g., WETH)
-    IERC20 public immutable baseToken;
+    IERC20 public immutable collateralToken;
 
     /// @notice Counter for generating unique order IDs
     uint256 public orderCount;
 
     /// @notice Current best (lowest) lending rate available
-    uint256 public bestBuyPrice;
+    uint256 public bestLendRate;
 
     /// @notice Tracks collateral balances for borrowers
-    mapping(address => uint256) public baseBalances;
+    mapping(address => uint256) public collateralBalances;
 
     /// @notice Tracks debt token balances for lenders
-    mapping(address => uint256) public quoteBalances;
+    mapping(address => uint256) public debtBalances;
 
     /// @notice Maps traders to their orders
     mapping(address => Order[]) public traderOrders;
 
-    /// @notice Main order book storage: price => side => orders
-    /// @dev Primary structure for order matching and price discovery
+    /// @notice Main order book storage: rate => side => orders
+    /// @dev Primary structure for order matching and rate discovery
     mapping(uint256 => mapping(Side => Order[])) public orderQueue;
 
     /// @notice Creates a new lending order book
-    /// @param _quoteToken Address of the debt token
-    /// @param _baseToken Address of the collateral token
-    constructor(address _router, address _quoteToken, address _baseToken) Ownable(_router) {
-        quoteToken = IERC20(_quoteToken);
-        baseToken = IERC20(_baseToken);
-        bestBuyPrice = 100e16; // 100%
+    /// @param _debtToken Address of the debt token
+    /// @param _collateralToken Address of the collateral token
+    constructor(address _router, address _debtToken, address _collateralToken) Ownable(_router) {
+        debtToken = IERC20(_debtToken);
+        collateralToken = IERC20(_collateralToken);
+        bestLendRate = 100e16; // 100%
     }
 
-    /// @notice Updates the best buy price based on the order queue
-    /// @dev Scans through buy orders to find the lowest valid price
-    function _updateBestBuyPrice() internal {
-        uint256 lowestPrice = type(uint256).max;
-        bool foundValidPrice = false;
+    /// @notice Updates the best lend rate based on the order queue
+    /// @dev Scans through lend orders to find the lowest valid rate
+    function _updateBestLendRate() internal {
+        uint256 lowestRate = type(uint256).max;
+        bool foundValidRate = false;
 
-        // Iterate through all orders to find lowest price with valid orders
-        // Since price is rate, then range will be from 0.5% (5e15) to 99.5% (995e15)
+        // Iterate through all orders to find lowest rate with valid orders
+        // Since rate is rate, then range will be from 0.5% (5e15) to 99.5% (995e15)
         // We increment by 0.5% (5e15)
-        for (uint256 price = 5e15; price < 995e15; price+=5e15) {
-            Order[] storage orders = orderQueue[price][Side.LEND];
+        for (uint256 rate = 5e15; rate < 995e15; rate+=5e15) {
+            Order[] storage orders = orderQueue[rate][Side.LEND];
             for (uint256 i = 0; i < orders.length; i++) {
                 if (orders[i].status == Status.OPEN) {
-                    lowestPrice = price;
-                    foundValidPrice = true;
+                    lowestRate = rate;
+                    foundValidRate = true;
                     break;
                 }
             }
-            if (foundValidPrice) break;
+            if (foundValidRate) break;
         }
 
-        // Only update and emit if price changed
-        if (bestBuyPrice != lowestPrice) {
-            bestBuyPrice = lowestPrice;
-            emit BestPriceUpdated(lowestPrice, Side.LEND);
+        // Only update and emit if rate changed
+        if (bestLendRate != lowestRate) {
+            bestLendRate = lowestRate;
+            emit BestRateUpdated(lowestRate, Side.LEND);
         }
     }
 
     /// @notice Gets the current best (lowest) lending rate available
     /// @return The best lending rate, or max uint256 if no valid lending orders exist
-    function getBestBuyPrice() external view returns (uint256) {
-        return bestBuyPrice;
+    function getBestLendRate() external view returns (uint256) {
+        return (bestLendRate == 100e16) ? 0 : bestLendRate;
     }
 
     /// @notice Places a new order in the book
-    /// @dev Handles both lending (BUY) and borrowing (SELL) orders
+    /// @dev Handles both lending and borrowing orders
     /// @param trader Address of the trader placing the order
     /// @param amount Amount of tokens to lend/borrow
-    /// @param collateralAmount Amount of collateral (for SELL orders)
-    /// @param price Interest rate in basis points
-    /// @param side LEND (lend) or BORROW (borrow)
-    /// @return matchedBuyOrders Array of matched lending orders
-    /// @return matchedSellOrders Array of matched borrowing orders
+    /// @param collateralAmount Amount of collateral (for BORROW orders)
+    /// @param rate Interest rate in basis points
+    /// @param side LEND or BORROW
+    /// @return matchedLendOrders Array of matched lending orders
+    /// @return matchedBorrowOrders Array of matched borrowing orders
     function placeOrder(
         address trader,
         uint256 amount,
         uint256 collateralAmount,
-        uint256 price,
+        uint256 rate,
         Side side
-    ) external onlyOwner returns (MatchedInfo[] memory matchedBuyOrders, MatchedInfo[] memory matchedSellOrders) {
+    ) external onlyOwner returns (MatchedInfo[] memory matchedLendOrders, MatchedInfo[] memory matchedBorrowOrders) {
         // ---------------------------
         // 1. Transfer tokens to escrow
         // ---------------------------
         if (side == Side.LEND) {
-            // LEND => deposit quoteToken
-            require(
-                quoteToken.transferFrom(trader, address(this), amount),
-                "quoteToken transfer failed"
-            );
-            quoteBalances[trader] += amount;
+            // LEND => deposit debtToken
+            debtBalances[trader] += amount;
+            debtToken.transferFrom(trader, address(this), amount);
             emit Deposit(trader, amount, Side.LEND);
         } else {
-            // BORROW => deposit baseToken
-            require(
-                baseToken.transferFrom(trader, address(this), collateralAmount),
-                "baseToken transfer failed"
-            );
-            baseBalances[trader] += collateralAmount;
+            // BORROW => deposit collateralToken
+            collateralBalances[trader] += collateralAmount;
+            collateralToken.transferFrom(trader, address(this), collateralAmount);
             emit Deposit(trader, collateralAmount, Side.BORROW);
         }
 
@@ -195,26 +193,26 @@ contract LendingCLOB is Ownable {
             trader: trader,
             amount: amount,
             collateralAmount: collateralAmount,
-            price: price,
+            rate: rate,
             side: side,
             status: Status.OPEN
         });
 
-        emit OrderPlaced(orderId, trader, amount, collateralAmount, price, side, Status.OPEN);
+        emit OrderPlaced(orderId, trader, amount, collateralAmount, rate, side, Status.OPEN);
 
-        // Arrays to store matched results
-        MatchedInfo[] memory tempBuyMatches  = new MatchedInfo[](50); // arbitrary max
-        MatchedInfo[] memory tempSellMatches = new MatchedInfo[](50);
-        uint256 buyMatchCount  = 0;
-        uint256 sellMatchCount = 0;
+        // Arrays to store matched results, 50 is arbitrary max
+        MatchedInfo[] memory tempLendMatches  = new MatchedInfo[](50);
+        MatchedInfo[] memory tempBorrowMatches = new MatchedInfo[](50);
+        uint256 lendMatchCount  = 0;
+        uint256 borrowMatchCount = 0;
 
         // Opposite side
         Side oppositeSide = (side == Side.LEND) ? Side.BORROW : Side.LEND;
-        Order[] storage oppQueue = orderQueue[price][oppositeSide];
+        Order[] storage oppQueue = orderQueue[rate][oppositeSide];
 
         // Keep track of total matched for the newOrder
         uint256 totalMatchedForNewOrder;
-        uint256 originalNewAmt = newOrder.amount;
+        uint256 originalNewAmount = newOrder.amount;
 
         // ---------------------------
         // 3. Match loop
@@ -229,13 +227,13 @@ contract LendingCLOB is Ownable {
                 continue;
             }
 
-            uint256 originalMatchAmt = matchOrder.amount;
-            uint256 matchedAmt = 0;
+            uint256 originalMatchAmount = matchOrder.amount;
+            uint256 matchedAmount = 0;
 
             if (matchOrder.amount <= newOrder.amount) {
                 // matchOrder fully filled
-                matchedAmt        = matchOrder.amount;
-                newOrder.amount  -= matchedAmt;
+                matchedAmount     = matchOrder.amount;
+                newOrder.amount  -= matchedAmount;
                 matchOrder.amount = 0;
                 matchOrder.status = Status.FILLED;
 
@@ -248,37 +246,37 @@ contract LendingCLOB is Ownable {
                 emit OrderMatched(newOrder.id, matchOrder.id, newOrder.status, Status.FILLED);
 
                 // Record how many tokens the newOrder matched
-                totalMatchedForNewOrder += matchedAmt;
+                totalMatchedForNewOrder += matchedAmount;
 
                 // store matchOrder details
-                _storeMatchInfo(matchOrder, matchedAmt, originalMatchAmt, tempBuyMatches, tempSellMatches, buyMatchCount, sellMatchCount);
+                _storeMatchInfo(matchOrder, matchedAmount, originalMatchAmount, tempLendMatches, tempBorrowMatches, lendMatchCount, borrowMatchCount);
                 if (matchOrder.side == Side.LEND) {
-                    buyMatchCount++;
+                    lendMatchCount++;
                 } else {
-                    sellMatchCount++;
+                    borrowMatchCount++;
                 }
 
-                // Remove matchOrder from queue (swap+pop)
-                _removeFromQueueByIndex(oppQueue, i, price, matchOrder.side);
+                // Remove matchOrder from queue (swap + pop)
+                _removeFromQueueByIndex(oppQueue, i, rate, matchOrder.side);
 
             } else {
                 // newOrder is fully filled, matchOrder partial
-                matchedAmt         = newOrder.amount;
-                matchOrder.amount -= matchedAmt;
+                matchedAmount      = newOrder.amount;
+                matchOrder.amount -= matchedAmount;
                 matchOrder.status  = Status.PARTIALLY_FILLED;
                 newOrder.amount    = 0;
                 newOrder.status    = Status.FILLED;
 
                 emit OrderMatched(newOrder.id, matchOrder.id, Status.FILLED, Status.PARTIALLY_FILLED);
 
-                totalMatchedForNewOrder += matchedAmt;
+                totalMatchedForNewOrder += matchedAmount;
 
                 // matchOrder
-                _storeMatchInfo(matchOrder, matchedAmt, originalMatchAmt, tempBuyMatches, tempSellMatches, buyMatchCount, sellMatchCount);
+                _storeMatchInfo(matchOrder, matchedAmount, originalMatchAmount, tempLendMatches, tempBorrowMatches, lendMatchCount, borrowMatchCount);
                 if (matchOrder.side == Side.LEND) {
-                    buyMatchCount++;
+                    lendMatchCount++;
                 } else {
-                    sellMatchCount++;
+                    borrowMatchCount++;
                 }
 
                 // newOrder is exhausted => break
@@ -294,7 +292,7 @@ contract LendingCLOB is Ownable {
         // ----------------------------------
         if (newOrder.status == Status.OPEN) {
             // No fill happened; push entire order
-            orderQueue[newOrder.price][newOrder.side].push(newOrder);
+            orderQueue[newOrder.rate][newOrder.side].push(newOrder);
             traderOrders[newOrder.trader].push(newOrder);
         } else {
             // (FILLED or PARTIALLY_FILLED)
@@ -310,70 +308,72 @@ contract LendingCLOB is Ownable {
             // We'll store newOrder's final leftover
             // partial fill leftover = newOrder.amount
             // final status is newOrder.status
-            // matched fraction = totalMatchedForNewOrder / originalNewAmt
+            // matched fraction = totalMatchedForNewOrder / originalNewAmount
 
-            uint256 denom = (originalNewAmt == 0) ? 1 : originalNewAmt;
-            uint256 pMatch = (totalMatchedForNewOrder * 1e18) / denom;
+            // Calculate matched collateral amount proportionally
+            uint256 matchedCollateralAmount = 0;
+            if (newOrder.side == Side.BORROW) {
+                matchedCollateralAmount = (newOrder.collateralAmount * totalMatchedForNewOrder) / originalNewAmount;
+            }
 
             MatchedInfo memory newOrderInfo = MatchedInfo({
                 orderId: newOrder.id,
                 trader: newOrder.trader,
-                amount: originalNewAmt,
-                collateralAmount: newOrder.collateralAmount,
+                matchAmount: totalMatchedForNewOrder,
+                matchCollateralAmount: matchedCollateralAmount,
                 side: newOrder.side,
-                percentMatch: pMatch,
                 status: newOrder.status
             });
 
-            // If newOrder is LEND, add to buy array; else to sell array
+            // If newOrder is LEND, add to lend array; else to borrow array
             if (newOrder.side == Side.LEND) {
-                tempBuyMatches[buyMatchCount] = newOrderInfo;
-                buyMatchCount++;
+                tempLendMatches[lendMatchCount] = newOrderInfo;
+                lendMatchCount++;
             } else {
-                tempSellMatches[sellMatchCount] = newOrderInfo;
-                sellMatchCount++;
+                tempBorrowMatches[borrowMatchCount] = newOrderInfo;
+                borrowMatchCount++;
             }
         }
 
         // ----------------------------------
         // 6. Build final matched arrays
         // ----------------------------------
-        matchedBuyOrders  = new MatchedInfo[](buyMatchCount);
-        matchedSellOrders = new MatchedInfo[](sellMatchCount);
+        matchedLendOrders  = new MatchedInfo[](lendMatchCount);
+        matchedBorrowOrders = new MatchedInfo[](borrowMatchCount);
 
-        uint256 buyIdx  = 0;
-        uint256 sellIdx = 0;
+        uint256 lendIdx  = 0;
+        uint256 borrowIdx = 0;
 
-        // copy buy matches
+        // copy lend matches
         for (uint256 j = 0; j < 50; j++) {
-            MatchedInfo memory infoB = tempBuyMatches[j];
-            if (infoB.trader != address(0)) {
-                matchedBuyOrders[buyIdx] = infoB;
-                buyIdx++;
-                if (buyIdx == buyMatchCount) break;
+            MatchedInfo memory infoL = tempLendMatches[j];
+            if (infoL.trader != address(0)) {
+                matchedLendOrders[lendIdx] = infoL;
+                lendIdx++;
+                if (lendIdx == lendMatchCount) break;
             }
         }
 
-        // copy sell matches
+        // copy borrow matches
         for (uint256 k = 0; k < 50; k++) {
-            MatchedInfo memory infoS = tempSellMatches[k];
-            if (infoS.trader != address(0)) {
-                matchedSellOrders[sellIdx] = infoS;
-                sellIdx++;
-                if (sellIdx == sellMatchCount) break;
+            MatchedInfo memory infoB = tempBorrowMatches[k];
+            if (infoB.trader != address(0)) {
+                matchedBorrowOrders[borrowIdx] = infoB;
+                borrowIdx++;
+                if (borrowIdx == borrowMatchCount) break;
             }
         }
 
-        // After matching logic, update best price if this is a buy order
+        // After matching logic, update best rate if this is a lend order
         if (side == Side.LEND && newOrder.status == Status.OPEN) {
-            if (price < bestBuyPrice) {
-                bestBuyPrice = price;
-                emit BestPriceUpdated(price, Side.LEND);
+            if (rate < bestLendRate) {
+                bestLendRate = rate;
+                emit BestRateUpdated(rate, Side.LEND);
             }
         }
 
         // Return both arrays
-        return (matchedBuyOrders, matchedSellOrders);
+        return (matchedLendOrders, matchedBorrowOrders);
     }
 
     /// @notice Cancels an open order
@@ -382,46 +382,58 @@ contract LendingCLOB is Ownable {
     /// @param orderId ID of the order to cancel
     function cancelOrder(address trader, uint256 orderId) external onlyOwner {
         Order[] storage orders = traderOrders[trader];
+        bool isOrderFound = false;
         for (uint256 i = 0; i < orders.length; i++) {
-            if (orders[i].id == orderId && orders[i].status == Status.OPEN) {
+            if (
+                orders[i].id == orderId &&
+                (orders[i].status == Status.OPEN || orders[i].status == Status.PARTIALLY_FILLED)
+            ) {
                 Order storage orderFound = orders[i];
                 orderFound.status = Status.CANCELLED;
                 emit LimitOrderCancelled(orderId, Status.CANCELLED);
 
                 // Remove from queue if present
                 uint256 idx = _findOrderIndex(
-                    orderQueue[orderFound.price][orderFound.side],
+                    orderQueue[orderFound.rate][orderFound.side],
                     orderId
                 );
-                if (idx < orderQueue[orderFound.price][orderFound.side].length) {
+                if (idx < orderQueue[orderFound.rate][orderFound.side].length) {
                     _removeFromQueueByIndex(
-                        orderQueue[orderFound.price][orderFound.side],
+                        orderQueue[orderFound.rate][orderFound.side],
                         idx,
-                        orderFound.price,
+                        orderFound.rate,
                         orderFound.side
                     );
 
-                    // If this was a buy order and potentially the best price, update best price
-                    if (orderFound.side == Side.LEND && orderFound.price == bestBuyPrice) {
-                        _updateBestBuyPrice();
+                    // If this was a lend order and potentially the best rate, update best rate
+                    if (orderFound.side == Side.LEND && orderFound.rate == bestLendRate) {
+                        _updateBestLendRate();
                     }
                 }
 
                 // Refund escrow
                 if (orderFound.side == Side.LEND) {
-                    uint256 refundAmt = orderFound.amount;
-                    require(quoteBalances[trader] >= refundAmt, "Insufficient quote escrow");
-                    quoteBalances[trader] -= refundAmt;
-                    require(quoteToken.transfer(trader, refundAmt), "Refund failed");
+                    uint256 refundAmount = orderFound.amount;
+                    if (debtBalances[trader] >= refundAmount) {
+                        debtBalances[trader] -= refundAmount;
+                        debtToken.transfer(trader, refundAmount);
+                    } else {
+                        revert InsufficientBalance(trader, debtToken, debtBalances[trader], refundAmount);
+                    }
                 } else {
                     uint256 refundCollat = orderFound.collateralAmount;
-                    require(baseBalances[trader] >= refundCollat, "Insufficient base escrow");
-                    baseBalances[trader] -= refundCollat;
-                    require(baseToken.transfer(trader, refundCollat), "Refund failed");
+                    if (collateralBalances[trader] >= refundCollat) {
+                        collateralBalances[trader] -= refundCollat;
+                        collateralToken.transfer(trader, refundCollat);
+                    } else {
+                        revert InsufficientBalance(trader, collateralToken, collateralBalances[trader], refundCollat);
+                    }
                 }
+                isOrderFound = true;
                 break;
             }
         }
+        if (!isOrderFound) revert OrderNotFound();
     }
 
     /// @notice Transfers tokens between parties
@@ -429,7 +441,7 @@ contract LendingCLOB is Ownable {
     /// @param from Address to transfer from
     /// @param to Address to transfer to
     /// @param amount Amount of tokens to transfer
-    /// @param side Determines which token to transfer (BUY=quote, SELL=base)
+    /// @param side Determines which token to transfer (LEND=debt, BORROW=collateral)
     function transferFrom(
         address from,
         address to,
@@ -437,13 +449,19 @@ contract LendingCLOB is Ownable {
         Side side
     ) external onlyOwner {
         if (side == Side.LEND) {
-            require(quoteBalances[from] >= amount, "Not enough quote escrow");
-            quoteBalances[from] -= amount;
-            require(quoteToken.transfer(to, amount), "Transfer failed");
+            if (debtBalances[from] >= amount) {
+                debtBalances[from] -= amount;
+                debtToken.transfer(to, amount);
+            } else {
+                revert InsufficientBalance(from, debtToken, debtBalances[from], amount);
+            }
         } else {
-            require(baseBalances[from] >= amount, "Not enough base escrow");
-            baseBalances[from] -= amount;
-            require(baseToken.transfer(to, amount), "Transfer failed");
+            if (collateralBalances[from] >= amount) {
+                collateralBalances[from] -= amount;
+                collateralToken.transfer(to, amount);
+            } else {
+                revert InsufficientBalance(from, collateralToken, collateralBalances[from], amount);
+            }
         }
         emit Transfer(from, to, amount, side);
     }
@@ -458,39 +476,49 @@ contract LendingCLOB is Ownable {
     /// @notice Stores match information for an order
     /// @dev Helper function for tracking matched orders
     /// @param matchOrder The order that was matched
-    /// @param matchedAmt Amount that was matched
-    /// @param originalMatchAmt Original order amount
-    /// @param buyArr Array to store BUY matches
-    /// @param sellArr Array to store SELL matches
-    /// @param buyCount Current count of BUY matches
-    /// @param sellCount Current count of SELL matches
+    /// @param matchedAmount Amount that was matched
+    /// @param originalMatchAmount Original order amount
+    /// @param lendArr Array to store LEND matches
+    /// @param borrowArr Array to store BORROW matches
+    /// @param lendCount Current count of LEND matches
+    /// @param borrowCount Current count of BORROW matches
     function _storeMatchInfo(
         Order storage matchOrder,
-        uint256 matchedAmt,
-        uint256 originalMatchAmt,
-        MatchedInfo[] memory buyArr,
-        MatchedInfo[] memory sellArr,
-        uint256 buyCount,
-        uint256 sellCount
-    ) internal view {
-        // matchedAmt / originalMatchAmt
-        uint256 denom = (originalMatchAmt == 0) ? 1 : originalMatchAmt;
-        uint256 pMatch = (matchedAmt * 1e18) / denom;
+        uint256 matchedAmount,
+        uint256 originalMatchAmount,
+        MatchedInfo[] memory lendArr,
+        MatchedInfo[] memory borrowArr,
+        uint256 lendCount,
+        uint256 borrowCount
+    ) internal {
+        // Calculate matched collateral amount proportionally
+        uint256 matchedCollateralAmount = 0;
+        if (matchOrder.side == Side.BORROW) {
+            // For borrow orders, calculate collateral proportionally
+            matchedCollateralAmount = (matchOrder.collateralAmount * matchedAmount) / originalMatchAmount;
+        }
 
         MatchedInfo memory info = MatchedInfo({
             orderId: matchOrder.id,
             trader: matchOrder.trader,
-            amount: originalMatchAmt,  // original matched
-            collateralAmount: matchOrder.collateralAmount,
+            matchAmount: matchedAmount,
+            matchCollateralAmount: matchedCollateralAmount,
             side: matchOrder.side,
-            percentMatch: pMatch,
             status: matchOrder.status
         });
 
+        _updateTraderOrderStatus(
+            matchOrder.id,
+            matchOrder.trader,
+            originalMatchAmount - matchedAmount,
+            matchOrder.collateralAmount - matchedCollateralAmount,
+            matchOrder.status
+        );
+
         if (matchOrder.side == Side.LEND) {
-            buyArr[buyCount] = info;
+            lendArr[lendCount] = info;
         } else {
-            sellArr[sellCount] = info;
+            borrowArr[borrowCount] = info;
         }
     }
 
@@ -498,12 +526,12 @@ contract LendingCLOB is Ownable {
     /// @dev Helper function for order cancellation and matching
     /// @param queue The order queue to remove from
     /// @param index Index of the order to remove
-    /// @param price Price level of the order
+    /// @param rate Rate level of the order
     /// @param side Side of the order book
     function _removeFromQueueByIndex(
         Order[] storage queue,
         uint256 index,
-        uint256 price,
+        uint256 rate,
         Side side
     ) internal {
         uint256 length = queue.length;
@@ -512,7 +540,7 @@ contract LendingCLOB is Ownable {
             queue[index] = queue[length - 1];
             queue.pop();
 
-            emit OrderRemovedFromQueue(rmOrderId, price, side);
+            emit OrderRemovedFromQueue(rmOrderId, rate, side);
         }
     }
     
@@ -529,5 +557,23 @@ contract LendingCLOB is Ownable {
             }
         }
         return type(uint256).max;
+    }
+
+    function _updateTraderOrderStatus(
+        uint256 orderId,
+        address trader,
+        uint256 amount,
+        uint256 collateralAmount,
+        Status status
+    ) internal {
+        Order[] storage orders = traderOrders[trader];
+        for (uint256 i = 0; i < orders.length; i++) {
+            if (orders[i].id == orderId) {
+                orders[i].amount = amount;
+                orders[i].collateralAmount = collateralAmount;
+                orders[i].status = status;
+                break;
+            }
+        }
     }
 }

@@ -7,6 +7,7 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Test} from "forge-std/Test.sol";
 import {LendingCLOB} from "../src/LendingCLOB.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @title LendingCLOBTest_Base - Base contract for LendingCLOB tests
 /// @notice Contains common setup and helper functions for testing LendingCLOB functionality
@@ -14,32 +15,32 @@ contract LendingCLOBTest_Base is Test {
     // Constants for testing
     uint256 internal constant INITIAL_BALANCE = 1000e18;
     uint256 internal constant DEFAULT_AMOUNT = 100e18;
-    uint256 internal constant DEFAULT_COLLATERAL = 50e18;
-    uint256 internal constant DEFAULT_PRICE = 50e15; // 5% interest rate
+    uint256 internal constant DEFAULT_COLLATERAL = 500e18;
+    uint256 internal constant DEFAULT_RATE = 50e15; // 5% interest rate
 
     // Test contracts
-    LendingCLOB internal book;
-    MockToken internal quoteToken;
-    MockToken internal baseToken;
+    LendingCLOB internal clob;
+    MockToken internal debtToken;
+    MockToken internal collateralToken;
 
     // Test accounts
-    address internal owner;
+    address internal router;
     address internal lender;
     address internal borrower;
 
     function setUp() public virtual {
         // Deploy mock tokens
-        quoteToken = new MockToken("Quote Token", "QUOTE", 18);
-        baseToken = new MockToken("Base Token", "BASE", 18);
+        debtToken = new MockToken("Debt Token", "DEBT", 18);
+        collateralToken = new MockToken("Collateral Token", "COLL", 18);
 
         // Setup test accounts
-        owner = makeAddr("owner");
+        router = makeAddr("router");
         lender = makeAddr("lender");
         borrower = makeAddr("borrower");
 
         // Deploy LendingCLOB
-        vm.prank(owner);
-        book = new LendingCLOB(owner, address(quoteToken), address(baseToken));
+        vm.prank(router);
+        clob = new LendingCLOB(router, address(debtToken), address(collateralToken));
 
         // Setup initial balances
         _setupBalances();
@@ -48,40 +49,40 @@ contract LendingCLOBTest_Base is Test {
     /// @notice Sets up initial token balances and approvals for test accounts
     function _setupBalances() internal {
         // Mint tokens to test accounts
-        quoteToken.mint(lender, INITIAL_BALANCE);
-        baseToken.mint(borrower, INITIAL_BALANCE);
+        debtToken.mint(lender, INITIAL_BALANCE);
+        collateralToken.mint(borrower, INITIAL_BALANCE);
 
         // Setup approvals
         vm.startPrank(lender);
-        quoteToken.approve(address(book), type(uint256).max);
-        baseToken.approve(address(book), type(uint256).max);
+        debtToken.approve(address(clob), type(uint256).max);
+        collateralToken.approve(address(clob), type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(borrower);
-        quoteToken.approve(address(book), type(uint256).max);
-        baseToken.approve(address(book), type(uint256).max);
+        debtToken.approve(address(clob), type(uint256).max);
+        collateralToken.approve(address(clob), type(uint256).max);
         vm.stopPrank();
     }
 
-    /// @notice Helper to place a buy (lend) order
-    function _placeBuyOrder(
+    /// @notice Helper to place a lend order
+    function _placeLendOrder(
         address trader,
         uint256 amount,
-        uint256 price
-    ) internal returns (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) {
-        vm.prank(owner);
-        return book.placeOrder(trader, amount, 0, price, LendingCLOB.Side.LEND);
+        uint256 rate
+    ) internal returns (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) {
+        vm.prank(router);
+        return clob.placeOrder(trader, amount, 0, rate, LendingCLOB.Side.LEND);
     }
 
-    /// @notice Helper to place a sell (borrow) order
-    function _placeSellOrder(
+    /// @notice Helper to place a borrow order
+    function _placeBorrowOrder(
         address trader,
         uint256 amount,
         uint256 collateralAmount,
-        uint256 price
-    ) internal returns (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) {
-        vm.prank(owner);
-        return book.placeOrder(trader, amount, collateralAmount, price, LendingCLOB.Side.BORROW);
+        uint256 rate
+    ) internal returns (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) {
+        vm.prank(router);
+        return clob.placeOrder(trader, amount, collateralAmount, rate, LendingCLOB.Side.BORROW);
     }
 
     /// @notice Helper to verify order details
@@ -91,7 +92,7 @@ contract LendingCLOBTest_Base is Test {
         address expectedTrader,
         uint256 expectedAmount,
         uint256 expectedCollateral,
-        uint256 expectedPrice,
+        uint256 expectedRate,
         LendingCLOB.Side expectedSide,
         LendingCLOB.Status expectedStatus
     ) internal pure {
@@ -99,7 +100,7 @@ contract LendingCLOBTest_Base is Test {
         assertEq(order.trader, expectedTrader);
         assertEq(order.amount, expectedAmount);
         assertEq(order.collateralAmount, expectedCollateral);
-        assertEq(order.price, expectedPrice);
+        assertEq(order.rate, expectedRate);
         assertTrue(order.side == expectedSide);
         assertTrue(order.status == expectedStatus);
     }
@@ -112,33 +113,43 @@ contract LendingCLOBTest_PlaceOrder is LendingCLOBTest_Base {
         super.setUp();
     }
 
-    function test_PlaceOrder_Buy() public {
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
+    function test_PlaceOrder_Lend() public {
+        (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) = 
+            _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
+
+        // Verify no matches occurred
+        assertEq(lendMatches.length, 0);
+        assertEq(borrowMatches.length, 0);
 
         // Verify order placement
-        LendingCLOB.Order[] memory orders = book.getUserOrders(lender);
+        LendingCLOB.Order[] memory orders = clob.getUserOrders(lender);
         assertEq(orders.length, 1);
         _verifyOrder(
             orders[0],
             0, // first order ID
             lender,
             DEFAULT_AMOUNT,
-            0, // no collateral for buy orders
-            DEFAULT_PRICE,
+            0, // no collateral for lend orders
+            DEFAULT_RATE,
             LendingCLOB.Side.LEND,
             LendingCLOB.Status.OPEN
         );
 
         // Verify token transfer
-        assertEq(quoteToken.balanceOf(address(book)), DEFAULT_AMOUNT);
-        assertEq(book.quoteBalances(lender), DEFAULT_AMOUNT);
+        assertEq(debtToken.balanceOf(address(clob)), DEFAULT_AMOUNT);
+        assertEq(clob.debtBalances(lender), DEFAULT_AMOUNT);
     }
 
-    function test_PlaceOrder_Sell() public {
-        _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
+    function test_PlaceOrder_Borrow() public {
+        (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) = 
+            _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
+
+        // Verify no matches occurred
+        assertEq(lendMatches.length, 0);
+        assertEq(borrowMatches.length, 0);
 
         // Verify order placement
-        LendingCLOB.Order[] memory orders = book.getUserOrders(borrower);
+        LendingCLOB.Order[] memory orders = clob.getUserOrders(borrower);
         assertEq(orders.length, 1);
         _verifyOrder(
             orders[0],
@@ -146,35 +157,84 @@ contract LendingCLOBTest_PlaceOrder is LendingCLOBTest_Base {
             borrower,
             DEFAULT_AMOUNT,
             DEFAULT_COLLATERAL,
-            DEFAULT_PRICE,
+            DEFAULT_RATE,
             LendingCLOB.Side.BORROW,
             LendingCLOB.Status.OPEN
         );
 
         // Verify token transfer
-        assertEq(baseToken.balanceOf(address(book)), DEFAULT_COLLATERAL);
-        assertEq(book.baseBalances(borrower), DEFAULT_COLLATERAL);
+        assertEq(collateralToken.balanceOf(address(clob)), DEFAULT_COLLATERAL);
+        assertEq(clob.collateralBalances(borrower), DEFAULT_COLLATERAL);
+    }
+
+    function test_PlaceOrder_Filled() public {
+        // Place lend order
+        _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
+        // Place matching borrow order
+        (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) = 
+            _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
+
+        // Verify matches
+        assertEq(lendMatches.length, 1);
+        assertEq(borrowMatches.length, 1);
+
+        // Verify lend match
+        assertEq(lendMatches[0].trader, lender);
+        assertEq(lendMatches[0].matchAmount, DEFAULT_AMOUNT);
+
+        // Verify borrow match
+        assertEq(borrowMatches[0].trader, borrower);
+        assertEq(borrowMatches[0].matchAmount, DEFAULT_AMOUNT);
+        assertEq(borrowMatches[0].matchCollateralAmount, DEFAULT_COLLATERAL);
+
+        // Verify order status
+        LendingCLOB.Order[] memory orders = clob.getUserOrders(lender);
+        assertTrue(orders[0].status == LendingCLOB.Status.FILLED);
     }
 
     function test_PlaceOrder_RevertIf_InsufficientBalance() public {
         // Attempt to place order with more tokens than balance
         uint256 tooMuchAmount = INITIAL_BALANCE + 1;
         
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, lender, INITIAL_BALANCE, tooMuchAmount));
-        _placeBuyOrder(lender, tooMuchAmount, DEFAULT_PRICE);
+        vm.expectRevert(abi.encodeWithSelector(
+            IERC20Errors.ERC20InsufficientBalance.selector,
+            lender,
+            INITIAL_BALANCE,
+            tooMuchAmount
+        ));
+        _placeLendOrder(lender, tooMuchAmount, DEFAULT_RATE);
 
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, borrower, INITIAL_BALANCE, tooMuchAmount));
-        _placeSellOrder(borrower, DEFAULT_AMOUNT, tooMuchAmount, DEFAULT_PRICE);
+        vm.expectRevert(abi.encodeWithSelector(
+            IERC20Errors.ERC20InsufficientBalance.selector,
+            borrower,
+            INITIAL_BALANCE,
+            tooMuchAmount
+        ));
+        _placeBorrowOrder(borrower, DEFAULT_AMOUNT, tooMuchAmount, DEFAULT_RATE);
     }
 
-    function test_PlaceOrder_RevertIf_NotOwner() public {
-        vm.prank(lender);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
-        book.placeOrder(lender, DEFAULT_AMOUNT, 0, DEFAULT_PRICE, LendingCLOB.Side.LEND);
+    function test_PlaceOrder_RevertIf_NoApproval() public {
+        address newLender = makeAddr("newLender");
+        debtToken.mint(newLender, INITIAL_BALANCE);
         
-        vm.prank(borrower);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, borrower));
-        book.placeOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE, LendingCLOB.Side.BORROW);
+        vm.expectRevert(abi.encodeWithSelector(
+            IERC20Errors.ERC20InsufficientAllowance.selector,
+            address(clob),
+            0,
+            DEFAULT_AMOUNT
+        ));
+        _placeLendOrder(newLender, DEFAULT_AMOUNT, DEFAULT_RATE);
+
+        address newBorrower = makeAddr("newBorrower");
+        collateralToken.mint(newBorrower, INITIAL_BALANCE);
+        
+        vm.expectRevert(abi.encodeWithSelector(
+            IERC20Errors.ERC20InsufficientAllowance.selector,
+            address(clob),
+            0,
+            DEFAULT_COLLATERAL
+        ));
+        _placeBorrowOrder(newBorrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
     }
 }
 
@@ -186,50 +246,53 @@ contract LendingCLOBTest_OrderMatching is LendingCLOBTest_Base {
     }
 
     function test_OrderMatching_ExactMatch() public {
-        // Place buy order
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
+        // Place lend order
+        _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
 
-        // Place matching sell order
-        (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) = 
-            _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
+        // Place matching borrow order
+        (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) = 
+            _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
 
         // Verify matches
-        assertEq(buyMatches.length, 1);
-        assertEq(sellMatches.length, 1);
+        assertEq(lendMatches.length, 1);
+        assertEq(borrowMatches.length, 1);
         
-        // Verify buy match
-        assertEq(buyMatches[0].trader, lender);
-        assertEq(buyMatches[0].amount, DEFAULT_AMOUNT);
-        assertTrue(buyMatches[0].status == LendingCLOB.Status.FILLED);
+        // Verify lend match
+        assertEq(lendMatches[0].trader, lender);
+        assertEq(lendMatches[0].matchAmount, DEFAULT_AMOUNT);
+        assertEq(lendMatches[0].matchCollateralAmount, 0);
+        assertTrue(lendMatches[0].status == LendingCLOB.Status.FILLED);
         
-        // Verify sell match
-        assertEq(sellMatches[0].trader, borrower);
-        assertEq(sellMatches[0].amount, DEFAULT_AMOUNT);
-        assertTrue(sellMatches[0].status == LendingCLOB.Status.FILLED);
+        // Verify borrow match
+        assertEq(borrowMatches[0].trader, borrower);
+        assertEq(borrowMatches[0].matchAmount, DEFAULT_AMOUNT);
+        assertEq(borrowMatches[0].matchCollateralAmount, DEFAULT_COLLATERAL);
+        assertTrue(borrowMatches[0].status == LendingCLOB.Status.FILLED);
     }
 
     function test_OrderMatching_PartialMatch() public {
-        // Place larger buy order
+        // Place larger lend order
         uint256 largerAmount = DEFAULT_AMOUNT * 2;
-        _placeBuyOrder(lender, largerAmount, DEFAULT_PRICE);
+        _placeLendOrder(lender, largerAmount, DEFAULT_RATE);
 
-        // Place smaller sell order
-        (LendingCLOB.MatchedInfo[] memory buyMatches, LendingCLOB.MatchedInfo[] memory sellMatches) = 
-            _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
+        // Place smaller borrow order
+        (LendingCLOB.MatchedInfo[] memory lendMatches, LendingCLOB.MatchedInfo[] memory borrowMatches) = 
+            _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
 
         // Verify matches
-        assertEq(buyMatches.length, 1);
-        assertEq(sellMatches.length, 1);
+        assertEq(lendMatches.length, 1);
+        assertEq(borrowMatches.length, 1);
         
-        // Verify buy match (partially filled)
-        assertEq(buyMatches[0].trader, lender);
-        assertEq(buyMatches[0].amount, largerAmount);
-        assertTrue(buyMatches[0].status == LendingCLOB.Status.PARTIALLY_FILLED);
+        // Verify lend match (partially filled)
+        assertEq(lendMatches[0].trader, lender);
+        assertEq(lendMatches[0].matchAmount, largerAmount - DEFAULT_AMOUNT);
+        assertTrue(lendMatches[0].status == LendingCLOB.Status.PARTIALLY_FILLED);
         
-        // Verify sell match (fully filled)
-        assertEq(sellMatches[0].trader, borrower);
-        assertEq(sellMatches[0].amount, DEFAULT_AMOUNT);
-        assertTrue(sellMatches[0].status == LendingCLOB.Status.FILLED);
+        // Verify borrow match (fully filled)
+        assertEq(borrowMatches[0].trader, borrower);
+        assertEq(borrowMatches[0].matchAmount, DEFAULT_AMOUNT);
+        assertEq(borrowMatches[0].matchCollateralAmount, DEFAULT_COLLATERAL);
+        assertTrue(borrowMatches[0].status == LendingCLOB.Status.FILLED);
     }
 }
 
@@ -240,87 +303,151 @@ contract LendingCLOBTest_CancelOrder is LendingCLOBTest_Base {
         super.setUp();
     }
 
-    function test_CancelOrder_Buy() public {
-        // Place buy order
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
+    function test_CancelOrder_Lend() public {
+        // Place lend order
+        _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
 
         // Cancel order
-        vm.prank(owner);
-        book.cancelOrder(lender, 0);
+        vm.prank(router);
+        clob.cancelOrder(lender, 0);
 
         // Verify order status
-        LendingCLOB.Order[] memory orders = book.getUserOrders(lender);
+        LendingCLOB.Order[] memory orders = clob.getUserOrders(lender);
         assertTrue(orders[0].status == LendingCLOB.Status.CANCELLED);
 
         // Verify token refund
-        assertEq(quoteToken.balanceOf(lender), INITIAL_BALANCE);
-        assertEq(book.quoteBalances(lender), 0);
+        assertEq(debtToken.balanceOf(lender), INITIAL_BALANCE);
+        assertEq(clob.debtBalances(lender), 0);
     }
 
-    function test_CancelOrder_Sell() public {
-        // Place sell order
-        _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
+    function test_CancelOrder_Borrow() public {
+        // Place borrow order
+        _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
 
         // Cancel order
-        vm.prank(owner);
-        book.cancelOrder(borrower, 0);
+        vm.prank(router);
+        clob.cancelOrder(borrower, 0);
 
         // Verify order status
-        LendingCLOB.Order[] memory orders = book.getUserOrders(borrower);
+        LendingCLOB.Order[] memory orders = clob.getUserOrders(borrower);
         assertTrue(orders[0].status == LendingCLOB.Status.CANCELLED);
 
         // Verify token refund
-        assertEq(baseToken.balanceOf(borrower), INITIAL_BALANCE);
-        assertEq(book.baseBalances(borrower), 0);
+        assertEq(collateralToken.balanceOf(borrower), INITIAL_BALANCE);
+        assertEq(clob.collateralBalances(borrower), 0);
+    }
+
+    function test_CancelOrder_PartiallyFilled() public {
+        // Place larger lend order
+        uint256 largerAmount = DEFAULT_AMOUNT * 2;
+        _placeLendOrder(lender, largerAmount, DEFAULT_RATE);
+
+        // Place smaller borrow order
+        _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
+        // Mock transfer
+        vm.startPrank(router);
+        clob.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
+        vm.stopPrank();
+
+        // Cancel partially filled lend order
+        vm.prank(router);
+        clob.cancelOrder(lender, 0);
+
+        // Verify order status
+        LendingCLOB.Order[] memory orders = clob.getUserOrders(lender);
+        assertTrue(orders[0].status == LendingCLOB.Status.CANCELLED);
+
+        // Verify token refund
+        assertEq(debtToken.balanceOf(lender), INITIAL_BALANCE - DEFAULT_AMOUNT);
+        assertEq(clob.debtBalances(lender), 0);
+        
     }
 
     function test_CancelOrder_RevertIf_NotFound() public {
-        vm.prank(owner);
-        book.cancelOrder(lender, 999); // Non-existent order ID
+        vm.prank(router);
+        vm.expectRevert(abi.encodeWithSelector(LendingCLOB.OrderNotFound.selector));
+        clob.cancelOrder(lender, 999); // Non-existent order ID
         
         // Verify no changes
-        assertEq(book.getUserOrders(lender).length, 0);
+        assertEq(clob.getUserOrders(lender).length, 0);
     }
 
-    function test_CancelOrder_RevertIf_NotOwner() public {
-        vm.prank(lender);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
-        book.cancelOrder(lender, 0);
+    function test_CancelOrder_RevertIf_InsufficientBalance() public {
+        // Place orders
+        _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
+        _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE + 1);
+
+        // Simulate balance depletion (through transfer)
+        vm.startPrank(router);
+        clob.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
+        clob.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingCLOB.Side.BORROW);
+        vm.stopPrank();
+
+        // Try to cancel orders with insufficient balance
+        vm.prank(router);
+        vm.expectRevert(abi.encodeWithSelector(
+            LendingCLOB.InsufficientBalance.selector,
+            lender,
+            debtToken,
+            0,
+            DEFAULT_AMOUNT
+        ));
+        clob.cancelOrder(lender, 0);
+
+        vm.prank(router);
+        vm.expectRevert(); // Order status is not OPEN
+        clob.cancelOrder(borrower, 1);
+    }
+
+    function test_CancelOrder_RevertIf_Filled() public {
+        // Place a lend order
+        _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
+
+        // Place matching borrow order that will fill the lend order
+        _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
+
+        // Try to cancel filled orders
+        vm.startPrank(router);
+        vm.expectRevert(abi.encodeWithSelector(LendingCLOB.OrderNotFound.selector));
+        clob.cancelOrder(lender, 0);
+        vm.expectRevert(abi.encodeWithSelector(LendingCLOB.OrderNotFound.selector));
+        clob.cancelOrder(borrower, 1);
+        vm.stopPrank();
     }
 }
 
-/// @title LendingCLOBTest_BestPrice - Tests for best price tracking functionality
-/// @notice Tests both happy and unhappy paths for best price updates
-contract LendingCLOBTest_BestPrice is LendingCLOBTest_Base {
+/// @title LendingCLOBTest_BestRate - Tests for best rate tracking functionality
+/// @notice Tests both happy and unhappy paths for best rate updates
+contract LendingCLOBTest_BestRate is LendingCLOBTest_Base {
     function setUp() public override {
         super.setUp();
     }
 
-    function test_BestPrice_Initial() public view {
-        assertEq(book.getBestBuyPrice(), 100e16);
+    function test_BestRate_Initial() public view {
+        assertEq(clob.getBestLendRate(), 0);
     }
 
-    function test_BestPrice_Update() public {
-        // Place buy order at 5%
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, 50e15);
-        assertEq(book.getBestBuyPrice(), 50e15);
+    function test_BestRate_Update() public {
+        // Place lend order at 5%
+        _placeLendOrder(lender, DEFAULT_AMOUNT, 50e15);
+        assertEq(clob.getBestLendRate(), 50e15);
 
-        // Place better buy order at 4%
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, 40e15);
-        assertEq(book.getBestBuyPrice(), 40e15);
+        // Place better lend order at 4%
+        _placeLendOrder(lender, DEFAULT_AMOUNT, 40e15);
+        assertEq(clob.getBestLendRate(), 40e15);
     }
 
-    function test_BestPrice_AfterCancellation() public {
-        // Place two buy orders
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, 50e15);
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, 40e15);
+    function test_BestRate_AfterCancellation() public {
+        // Place two lend orders
+        _placeLendOrder(lender, DEFAULT_AMOUNT, 50e15);
+        _placeLendOrder(lender, DEFAULT_AMOUNT, 40e15);
         
         // Cancel better order
-        vm.prank(owner);
-        book.cancelOrder(lender, 1);
+        vm.prank(router);
+        clob.cancelOrder(lender, 1);
 
-        // Best price should update to next best
-        assertEq(book.getBestBuyPrice(), 50e15);
+        // Best rate should update to next best
+        assertEq(clob.getBestLendRate(), 50e15);
     }
 }
 
@@ -331,45 +458,57 @@ contract LendingCLOBTest_Transfer is LendingCLOBTest_Base {
         super.setUp();
     }
 
-    function test_Transfer_Quote() public {
-        // Setup: place buy order to get tokens in escrow
-        _placeBuyOrder(lender, DEFAULT_AMOUNT, DEFAULT_PRICE);
+    function test_Transfer_Debt() public {
+        // Setup: place lend order to get tokens in escrow
+        _placeLendOrder(lender, DEFAULT_AMOUNT, DEFAULT_RATE);
 
-        // Transfer quote tokens
-        vm.prank(owner);
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
+        // Transfer debt tokens
+        vm.prank(router);
+        clob.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
 
         // Verify balances
-        assertEq(book.quoteBalances(lender), 0);
-        assertEq(quoteToken.balanceOf(borrower), DEFAULT_AMOUNT);
+        assertEq(clob.debtBalances(lender), 0);
+        assertEq(debtToken.balanceOf(borrower), DEFAULT_AMOUNT);
     }
 
-    function test_Transfer_Base() public {
-        // Setup: place sell order to get tokens in escrow
-        _placeSellOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_PRICE);
+    function test_Transfer_Collateral() public {
+        // Setup: place borrow order to get tokens in escrow
+        _placeBorrowOrder(borrower, DEFAULT_AMOUNT, DEFAULT_COLLATERAL, DEFAULT_RATE);
 
-        // Transfer base tokens
-        vm.prank(owner);
-        book.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingCLOB.Side.BORROW);
+        // Transfer collateral tokens
+        vm.prank(router);
+        clob.transferFrom(borrower, lender, DEFAULT_COLLATERAL, LendingCLOB.Side.BORROW);
 
         // Verify balances
-        assertEq(book.baseBalances(borrower), 0);
-        assertEq(baseToken.balanceOf(lender), DEFAULT_COLLATERAL);
+        assertEq(clob.collateralBalances(borrower), 0);
+        assertEq(collateralToken.balanceOf(lender), DEFAULT_COLLATERAL);
     }
 
     function test_Transfer_RevertIf_NotOwner() public {
         vm.prank(lender);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, lender));
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
+        clob.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
     }
 
     function test_Transfer_RevertIf_InsufficientBalance() public {
-        vm.prank(owner);
-        vm.expectRevert("Not enough quote escrow");
-        book.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
+        vm.prank(router);
+        vm.expectRevert(abi.encodeWithSelector(
+            LendingCLOB.InsufficientBalance.selector,
+            lender,
+            debtToken,
+            0,
+            DEFAULT_AMOUNT
+        ));
+        clob.transferFrom(lender, borrower, DEFAULT_AMOUNT, LendingCLOB.Side.LEND);
 
-        vm.prank(owner);
-        vm.expectRevert("Not enough base escrow");
-        book.transferFrom(borrower, lender, DEFAULT_AMOUNT, LendingCLOB.Side.BORROW);
+        vm.prank(router);
+        vm.expectRevert(abi.encodeWithSelector(
+            LendingCLOB.InsufficientBalance.selector,
+            borrower,
+            collateralToken,
+            0,
+            DEFAULT_AMOUNT
+        ));
+        clob.transferFrom(borrower, lender, DEFAULT_AMOUNT, LendingCLOB.Side.BORROW);
     }
 }
