@@ -89,6 +89,12 @@ contract LendingCLOB is Ownable {
     /// @notice Token used as collateral (e.g., WETH)
     IERC20 public immutable collateralToken;
 
+    /// @notice Maturity month of the CLOB
+    string public maturityMonth;
+
+    /// @notice Maturity year of the CLOB
+    uint256 public immutable maturityYear;
+
     /// @notice Counter for generating unique order IDs
     uint256 public orderCount;
 
@@ -111,9 +117,19 @@ contract LendingCLOB is Ownable {
     /// @notice Creates a new lending order book
     /// @param _debtToken Address of the debt token
     /// @param _collateralToken Address of the collateral token
-    constructor(address _router, address _debtToken, address _collateralToken) Ownable(_router) {
+    /// @param _maturityMonth Maturity month of the CLOB
+    /// @param _maturityYear Maturity year of the CLOB
+    constructor(
+        address _router,
+        address _debtToken,
+        address _collateralToken,
+        string memory _maturityMonth,
+        uint256 _maturityYear
+    ) Ownable(_router) {
         debtToken = IERC20(_debtToken);
         collateralToken = IERC20(_collateralToken);
+        maturityMonth = _maturityMonth;
+        maturityYear = _maturityYear;
         bestLendRate = 100e16; // 100%
     }
 

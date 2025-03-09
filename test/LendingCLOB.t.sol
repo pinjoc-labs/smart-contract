@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {LendingCLOB} from "../src/LendingCLOB.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @title LendingCLOBTest_Base - Base contract for LendingCLOB tests
 /// @notice Contains common setup and helper functions for testing LendingCLOB functionality
@@ -40,7 +40,7 @@ contract LendingCLOBTest_Base is Test {
 
         // Deploy LendingCLOB
         vm.prank(router);
-        clob = new LendingCLOB(router, address(debtToken), address(collateralToken));
+        clob = new LendingCLOB(router, address(debtToken), address(collateralToken), "MAY", 2025);
 
         // Setup initial balances
         _setupBalances();
