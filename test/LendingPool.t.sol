@@ -635,6 +635,9 @@ contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
         vm.stopPrank();
 
         // Verify liquidation results
+        (,,,uint256 totalBorrowAssets, uint256 totalBorrowShares,,) = lendingPool.lendingPoolStates(BORROW_RATE);
+        assertEq(totalBorrowAssets, 0, "Total borrow assets should be updated");
+        assertEq(totalBorrowShares, 0, "Total borrow shares should be updated");
         assertEq(lendingPool.getUserCollateral(BORROW_RATE, address1), 0, "Collateral should be transferred to liquidator");
         assertEq(lendingPool.getUserBorrowShares(BORROW_RATE, address1), 0, "Borrow shares should be cleared");
         assertEq(IERC20(collateralToken).balanceOf(address2), 1 ether, "Liquidator should receive collateral");
@@ -655,6 +658,9 @@ contract LendingPoolTest_Liquidate is LendingPoolTest_Base {
         vm.stopPrank();
 
         // Verify liquidation results
+        (,,,uint256 totalBorrowAssets, uint256 totalBorrowShares,,) = lendingPool.lendingPoolStates(BORROW_RATE);
+        assertEq(totalBorrowAssets, 0, "Total borrow assets should be updated");
+        assertEq(totalBorrowShares, 0, "Total borrow shares should be updated");    
         assertEq(lendingPool.getUserCollateral(BORROW_RATE, address1), 0, "Collateral should be transferred to liquidator");
         assertEq(lendingPool.getUserBorrowShares(BORROW_RATE, address1), 0, "Borrow shares should be cleared");
         assertEq(IERC20(collateralToken).balanceOf(address2), 1 ether, "Liquidator should receive collateral");
