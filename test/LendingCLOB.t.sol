@@ -30,8 +30,8 @@ contract LendingCLOBTest_Base is Test {
 
     function setUp() public virtual {
         // Deploy mock tokens
-        debtToken = new MockToken("Debt Token", "DEBT", 18);
-        collateralToken = new MockToken("Collateral Token", "COLL", 18);
+        debtToken = new MockToken("Mock USDC", "MUSDC", 6);
+        collateralToken = new MockToken("Mock ETH", "METH", 18);
 
         // Setup test accounts
         router = makeAddr("router");
