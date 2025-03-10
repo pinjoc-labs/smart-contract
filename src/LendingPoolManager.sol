@@ -6,26 +6,14 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
+import {ILendingPoolManager} from "./interfaces/ILendingPoolManager.sol";
+import {ILendingPool} from "./interfaces/ILendingPool.sol";
 import {LendingPool} from "./LendingPool.sol";
 
 /// @title LendingPoolManager - Factory contract for creating and managing lending pools
 /// @notice Manages the creation and retrieval of lending pools with different parameters
 /// @dev Implements access control and prevents reentrancy attacks
-contract LendingPoolManager is Ownable, ReentrancyGuard {
-
-    /// @notice Thrown when attempting to create a lending pool that already exists
-    /// @dev Identified by the unique key generated from debt token, collateral token, maturity month and year
-    error LendingPoolAlreadyExists();
-
-    /// @notice Thrown when attempting to retrieve a non-existent lending pool
-    error LendingPoolNotFound();
-
-    /// @notice Emitted when a new lending pool is created
-    /// @param lendingPool The address of the created lending pool
-    /// @param creator The address that created the pool
-    /// @param info The configuration parameters of the created pool
-    event LendingPoolCreated(address lendingPool, address indexed creator, LendingPool.LendingPoolInfo info);
-
+contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
     /// @notice Mapping from pool key to LendingPool contract
     /// @dev Key is generated from debt token, collateral token, maturity month and year
     mapping(bytes32 => LendingPool) public lendingPools;
@@ -46,7 +34,15 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
         string memory maturityMonth_,
         uint256 maturityYear_
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(debtToken_, collateralToken_, maturityMonth_, maturityYear_));
+        return
+            keccak256(
+                abi.encodePacked(
+                    debtToken_,
+                    collateralToken_,
+                    maturityMonth_,
+                    maturityYear_
+                )
+            );
     }
 
     /// @notice Creates a new lending pool with specified parameters
@@ -68,17 +64,24 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
         uint256 maturityYear_,
         uint256 ltv_
     ) external onlyOwner nonReentrant returns (address) {
-        bytes32 key = _generateLendingPoolKey(debtToken_, collateralToken_, maturityMonth_, maturityYear_);
-        if (address(lendingPools[key]) != address(0)) revert LendingPoolAlreadyExists();
-        LendingPool.LendingPoolInfo memory info = LendingPool.LendingPoolInfo({
-            debtToken: debtToken_,
-            collateralToken: collateralToken_,
-            oracle: oracle_,
-            maturity: maturity_,
-            maturityMonth: maturityMonth_,
-            maturityYear: maturityYear_,
-            ltv: ltv_
-        });
+        bytes32 key = _generateLendingPoolKey(
+            debtToken_,
+            collateralToken_,
+            maturityMonth_,
+            maturityYear_
+        );
+        if (address(lendingPools[key]) != address(0))
+            revert LendingPoolAlreadyExists();
+        ILendingPool.LendingPoolInfo memory info = ILendingPool
+            .LendingPoolInfo({
+                debtToken: debtToken_,
+                collateralToken: collateralToken_,
+                oracle: oracle_,
+                maturity: maturity_,
+                maturityMonth: maturityMonth_,
+                maturityYear: maturityYear_,
+                ltv: ltv_
+            });
         lendingPools[key] = new LendingPool(msg.sender, info);
         emit LendingPoolCreated(address(lendingPools[key]), msg.sender, info);
 
@@ -98,8 +101,14 @@ contract LendingPoolManager is Ownable, ReentrancyGuard {
         string memory maturityMonth_,
         uint256 maturityYear_
     ) external view returns (address) {
-        bytes32 key = _generateLendingPoolKey(debtToken_, collateralToken_, maturityMonth_, maturityYear_);
-        if (address(lendingPools[key]) == address(0)) revert LendingPoolNotFound();
+        bytes32 key = _generateLendingPoolKey(
+            debtToken_,
+            collateralToken_,
+            maturityMonth_,
+            maturityYear_
+        );
+        if (address(lendingPools[key]) == address(0))
+            revert LendingPoolNotFound();
         return address(lendingPools[key]);
     }
 }

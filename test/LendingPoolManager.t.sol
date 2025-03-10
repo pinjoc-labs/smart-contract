@@ -4,6 +4,8 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+
+import {ILendingPoolManager} from "../src/interfaces/ILendingPoolManager.sol";
 import {LendingPoolManager} from "../src/LendingPoolManager.sol";
 import {LendingPool} from "../src/LendingPool.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
@@ -42,7 +44,7 @@ contract LendingPoolManagerTest_Base is Test {
         collateralToken = address(new MockToken("Mock ETH", "METH", 18));
         oracle = address(new MockOracle(debtToken, collateralToken));
         MockOracle(oracle).setPrice(2000e6); // 1 ETH = 2000 USDC
-        
+
         // Setup test addresses
         owner = makeAddr("owner");
         user = makeAddr("user");
@@ -55,15 +57,16 @@ contract LendingPoolManagerTest_Base is Test {
     /// @notice Helper function to create a lending pool with default parameters
     /// @dev Uses predefined parameters for maturity, LTV, and tokens
     function setUp_CreatePool() public returns (address) {
-        return manager.createLendingPool(
-            debtToken,
-            collateralToken,
-            oracle,
-            maturity,
-            maturityMonth,
-            maturityYear,
-            ltv
-        );
+        return
+            manager.createLendingPool(
+                debtToken,
+                collateralToken,
+                oracle,
+                maturity,
+                maturityMonth,
+                maturityYear,
+                ltv
+            );
     }
 }
 
@@ -90,7 +93,11 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
         ) = pool.info();
 
         assertEq(poolDebtToken, debtToken, "Debt token mismatch");
-        assertEq(poolCollateralToken, collateralToken, "Collateral token mismatch");
+        assertEq(
+            poolCollateralToken,
+            collateralToken,
+            "Collateral token mismatch"
+        );
         assertEq(poolOracle, oracle, "Oracle mismatch");
         assertEq(poolMaturity, maturity, "Maturity mismatch");
         assertEq(poolMaturityMonth, maturityMonth, "Maturity month mismatch");
@@ -103,7 +110,12 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
     function test_CreateLendingPool_RevertIf_Invalid() public {
         // Test non-owner cannot create pool
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                user
+            )
+        );
         setUp_CreatePool();
 
         // Create initial pool
@@ -112,7 +124,7 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
 
         // Test cannot create duplicate pool
         vm.prank(owner);
-        vm.expectRevert(LendingPoolManager.LendingPoolAlreadyExists.selector);
+        vm.expectRevert(ILendingPoolManager.LendingPoolAlreadyExists.selector);
         setUp_CreatePool();
     }
 }
@@ -139,7 +151,11 @@ contract LendingPoolManagerTest_GetLendingPool is LendingPoolManagerTest_Base {
         ) = pool.info();
 
         assertEq(poolDebtToken, debtToken, "Debt token mismatch");
-        assertEq(poolCollateralToken, collateralToken, "Collateral token mismatch");
+        assertEq(
+            poolCollateralToken,
+            collateralToken,
+            "Collateral token mismatch"
+        );
         assertEq(poolOracle, oracle, "Oracle mismatch");
         assertEq(poolMaturity, maturity, "Maturity mismatch");
         assertEq(poolMaturityMonth, maturityMonth, "Maturity month mismatch");
@@ -150,12 +166,7 @@ contract LendingPoolManagerTest_GetLendingPool is LendingPoolManagerTest_Base {
     /// @notice Test getting non-existent lending pool
     /// @dev Verifies that attempting to get a non-existent pool reverts with appropriate error
     function test_GetLendingPool_RevertIf_NotFound() public {
-        vm.expectRevert(LendingPoolManager.LendingPoolNotFound.selector);
-        manager.getLendingPool(
-            debtToken,
-            collateralToken,
-            "MAY",
-            2025
-        );
+        vm.expectRevert(ILendingPoolManager.LendingPoolNotFound.selector);
+        manager.getLendingPool(debtToken, collateralToken, "MAY", 2025);
     }
 }

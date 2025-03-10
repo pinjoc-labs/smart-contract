@@ -4,6 +4,8 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+
+import {ILendingCLOBManager} from "../src/interfaces/ILendingCLOBManager.sol";
 import {LendingCLOBManager} from "../src/LendingCLOBManager.sol";
 import {LendingCLOB} from "../src/LendingCLOB.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
@@ -34,7 +36,7 @@ contract LendingCLOBManagerTest_Base is Test {
         // Deploy mock tokens and oracle
         debtToken = address(new MockToken("Mock USDC", "MUSDC", 6));
         collateralToken = address(new MockToken("Mock ETH", "METH", 18));
-        
+
         // Setup test addresses
         owner = makeAddr("owner");
         user = makeAddr("user");
@@ -47,12 +49,13 @@ contract LendingCLOBManagerTest_Base is Test {
     /// @notice Helper function to create a lending CLOB with default parameters
     /// @dev Uses predefined parameters for maturity and tokens
     function setUp_CreateCLOB() public returns (address) {
-        return manager.createLendingCLOB(
-            debtToken,
-            collateralToken,
-            maturityMonth,
-            maturityYear
-        );
+        return
+            manager.createLendingCLOB(
+                debtToken,
+                collateralToken,
+                maturityMonth,
+                maturityYear
+            );
     }
 }
 
@@ -70,8 +73,16 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
         LendingCLOB clob = LendingCLOB(clobAddress);
 
         assertEq(address(clob.debtToken()), debtToken, "Debt token mismatch");
-        assertEq(address(clob.collateralToken()), collateralToken, "Collateral token mismatch");
-        assertEq(clob.maturityMonth(), maturityMonth, "Maturity month mismatch");
+        assertEq(
+            address(clob.collateralToken()),
+            collateralToken,
+            "Collateral token mismatch"
+        );
+        assertEq(
+            clob.maturityMonth(),
+            maturityMonth,
+            "Maturity month mismatch"
+        );
         assertEq(clob.maturityYear(), maturityYear, "Maturity year mismatch");
     }
 
@@ -80,7 +91,12 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
     function test_CreateLendingCLOB_RevertIf_Invalid() public {
         // Test non-owner cannot create CLOB
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                user
+            )
+        );
         setUp_CreateCLOB();
 
         // Create initial CLOB
@@ -89,7 +105,7 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
 
         // Test cannot create duplicate CLOB
         vm.prank(owner);
-        vm.expectRevert(LendingCLOBManager.LendingCLOBAlreadyExists.selector);
+        vm.expectRevert(ILendingCLOBManager.LendingCLOBAlreadyExists.selector);
         setUp_CreateCLOB();
     }
 }
@@ -102,26 +118,34 @@ contract LendingCLOBManagerTest_GetLendingCLOB is LendingCLOBManagerTest_Base {
     /// @dev Verifies that CLOB addresses can be retrieved and CLOB parameters match creation values
     function test_GetLendingCLOB() public {
         vm.prank(owner);
-        address clobAddress = setUp_CreateCLOB();
-        address retrievedClobAddress = manager.getLendingCLOB(debtToken, collateralToken, maturityMonth, maturityYear);
+        setUp_CreateCLOB();
+        address retrievedClobAddress = manager.getLendingCLOB(
+            debtToken,
+            collateralToken,
+            maturityMonth,
+            maturityYear
+        );
 
-        LendingCLOB clob = LendingCLOB(clobAddress);
+        LendingCLOB clob = LendingCLOB(retrievedClobAddress);
 
         assertEq(address(clob.debtToken()), debtToken, "Debt token mismatch");
-        assertEq(address(clob.collateralToken()), collateralToken, "Collateral token mismatch");
-        assertEq(clob.maturityMonth(), maturityMonth, "Maturity month mismatch");
+        assertEq(
+            address(clob.collateralToken()),
+            collateralToken,
+            "Collateral token mismatch"
+        );
+        assertEq(
+            clob.maturityMonth(),
+            maturityMonth,
+            "Maturity month mismatch"
+        );
         assertEq(clob.maturityYear(), maturityYear, "Maturity year mismatch");
     }
 
     /// @notice Test getting non-existent lending CLOB
     /// @dev Verifies that attempting to get a non-existent CLOB reverts with appropriate error
     function test_GetLendingCLOB_RevertIf_NotFound() public {
-        vm.expectRevert(LendingCLOBManager.LendingCLOBNotFound.selector);
-        manager.getLendingCLOB(
-            debtToken,
-            collateralToken,
-            "MAY",
-            2025
-        );
+        vm.expectRevert(ILendingCLOBManager.LendingCLOBNotFound.selector);
+        manager.getLendingCLOB(debtToken, collateralToken, "MAY", 2025);
     }
 }
