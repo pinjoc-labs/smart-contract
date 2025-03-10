@@ -9,9 +9,6 @@ interface ILendingCLOBManager {
     /// @dev Identified by the unique key generated from debt token, collateral token, maturity month and year
     error LendingCLOBAlreadyExists();
 
-    /// @notice Thrown when attempting to retrieve a non-existent lending CLOB
-    error LendingCLOBNotFound();
-
     /// @notice Emitted when a new lending CLOB is created
     /// @param lendingCLOB The address of the created lending CLOB
     /// @param creator The address that created the CLOB

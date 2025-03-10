@@ -120,16 +120,17 @@ contract LendingCLOB is ILendingCLOB, Ownable {
         // ---------------------------
         // 1. Transfer tokens to escrow
         // ---------------------------
+        // Remember owner is router!
         if (side == Side.LEND) {
             // LEND => deposit debtToken
             debtBalances[trader] += amount;
-            debtToken.transferFrom(trader, address(this), amount);
+            debtToken.transferFrom(owner(), address(this), amount);
             emit Deposit(trader, amount, Side.LEND);
         } else {
             // BORROW => deposit collateralToken
             collateralBalances[trader] += collateralAmount;
             collateralToken.transferFrom(
-                trader,
+                owner(),
                 address(this),
                 collateralAmount
             );

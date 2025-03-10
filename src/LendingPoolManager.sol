@@ -171,7 +171,6 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
             maturityMonth_,
             maturityYear_
         );
-        if (lendingPools[key] == address(0)) revert LendingPoolNotFound();
         return lendingPools[key];
     }
 }

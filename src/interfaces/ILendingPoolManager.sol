@@ -19,9 +19,6 @@ interface ILendingPoolManager {
     /// @notice Thrown when attempting to create a lending pool that already exists
     /// @dev Identified by the unique key generated from debt token, collateral token, maturity month and year
     error LendingPoolAlreadyExists();
-
-    /// @notice Thrown when attempting to retrieve a non-existent lending pool
-    error LendingPoolNotFound();
     
     /// @notice Thrown when attempting to set an invalid oracle address
     error InvalidOracle();

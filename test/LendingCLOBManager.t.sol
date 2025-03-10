@@ -144,11 +144,4 @@ contract LendingCLOBManagerTest_GetLendingCLOB is LendingCLOBManagerTest_Base {
         );
         assertEq(clob.maturityYear(), maturityYear, "Maturity year mismatch");
     }
-
-    /// @notice Test getting non-existent lending CLOB
-    /// @dev Verifies that attempting to get a non-existent CLOB reverts with appropriate error
-    function test_GetLendingCLOB_RevertIf_NotFound() public {
-        vm.expectRevert(ILendingCLOBManager.LendingCLOBNotFound.selector);
-        manager.getLendingCLOB(debtToken, collateralToken, "MAY", 2025);
-    }
 }

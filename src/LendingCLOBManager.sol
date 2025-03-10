@@ -105,7 +105,6 @@ contract LendingCLOBManager is ILendingCLOBManager, Ownable, ReentrancyGuard {
             maturityMonth_,
             maturityYear_
         );
-        if (lendingCLOB[key] == address(0)) revert LendingCLOBNotFound();
         return lendingCLOB[key];
     }
 }
