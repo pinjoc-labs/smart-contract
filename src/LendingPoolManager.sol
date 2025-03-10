@@ -16,7 +16,7 @@ import {LendingPool} from "./LendingPool.sol";
 contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
     /// @notice Mapping from pool key to LendingPool contract
     /// @dev Key is generated from debt token, collateral token, maturity month and year
-    mapping(bytes32 => LendingPool) public lendingPools;
+    mapping(bytes32 => address) public lendingPools;
 
     /// @notice Initializes the contract with the deployer as owner
     constructor() Ownable(msg.sender) {}
@@ -70,8 +70,7 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
             maturityMonth_,
             maturityYear_
         );
-        if (address(lendingPools[key]) != address(0))
-            revert LendingPoolAlreadyExists();
+        if (lendingPools[key] != address(0)) revert LendingPoolAlreadyExists();
         ILendingPool.LendingPoolInfo memory info = ILendingPool
             .LendingPoolInfo({
                 debtToken: debtToken_,
@@ -82,10 +81,10 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
                 maturityYear: maturityYear_,
                 ltv: ltv_
             });
-        lendingPools[key] = new LendingPool(msg.sender, info);
-        emit LendingPoolCreated(address(lendingPools[key]), msg.sender, info);
+        lendingPools[key] = address(new LendingPool(msg.sender, info));
+        emit LendingPoolCreated(lendingPools[key], msg.sender, info);
 
-        return address(lendingPools[key]);
+        return lendingPools[key];
     }
 
     /// @notice Retrieves the address of a lending pool based on its parameters
@@ -107,8 +106,7 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
             maturityMonth_,
             maturityYear_
         );
-        if (address(lendingPools[key]) == address(0))
-            revert LendingPoolNotFound();
-        return address(lendingPools[key]);
+        if (lendingPools[key] == address(0)) revert LendingPoolNotFound();
+        return lendingPools[key];
     }
 }

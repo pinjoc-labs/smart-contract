@@ -15,7 +15,7 @@ import {LendingCLOB} from "./LendingCLOB.sol";
 contract LendingCLOBManager is ILendingCLOBManager, Ownable, ReentrancyGuard {
     /// @notice Mapping from CLOB key to LendingCLOB contract
     /// @dev Key is generated from debt token, collateral token, maturity month and year
-    mapping(bytes32 => LendingCLOB) public lendingCLOB;
+    mapping(bytes32 => address) public lendingCLOB;
 
     /// @notice Initializes the contract with the deployer as owner
     constructor() Ownable(msg.sender) {}
@@ -62,18 +62,19 @@ contract LendingCLOBManager is ILendingCLOBManager, Ownable, ReentrancyGuard {
             maturityMonth_,
             maturityYear_
         );
-        if (address(lendingCLOB[key]) != address(0))
-            revert LendingCLOBAlreadyExists();
-        lendingCLOB[key] = new LendingCLOB(
-            msg.sender,
-            debtToken_,
-            collateralToken_,
-            maturityMonth_,
-            maturityYear_
+        if (lendingCLOB[key] != address(0)) revert LendingCLOBAlreadyExists();
+        lendingCLOB[key] = address(
+            new LendingCLOB(
+                msg.sender,
+                debtToken_,
+                collateralToken_,
+                maturityMonth_,
+                maturityYear_
+            )
         );
 
         emit LendingCLOBCreated(
-            address(lendingCLOB[key]),
+            lendingCLOB[key],
             msg.sender,
             debtToken_,
             collateralToken_,
@@ -81,7 +82,7 @@ contract LendingCLOBManager is ILendingCLOBManager, Ownable, ReentrancyGuard {
             maturityYear_
         );
 
-        return address(lendingCLOB[key]);
+        return lendingCLOB[key];
     }
 
     /// @notice Retrieves the address of a lending CLOB based on its parameters
@@ -103,8 +104,7 @@ contract LendingCLOBManager is ILendingCLOBManager, Ownable, ReentrancyGuard {
             maturityMonth_,
             maturityYear_
         );
-        if (address(lendingCLOB[key]) == address(0))
-            revert LendingCLOBNotFound();
-        return address(lendingCLOB[key]);
+        if (lendingCLOB[key] == address(0)) revert LendingCLOBNotFound();
+        return lendingCLOB[key];
     }
 }
