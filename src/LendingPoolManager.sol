@@ -14,7 +14,6 @@ import {LendingPool} from "./LendingPool.sol";
 /// @notice Manages the creation and retrieval of lending pools with different parameters
 /// @dev Implements access control and prevents reentrancy attacks
 contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
-
     /// @notice Address of the lending router
     address public router;
 
@@ -34,13 +33,14 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
 
     /// @notice Initializes the contract with the deployer as owner
     constructor(address router_) Ownable(msg.sender) {
-        router = router_;
+        setRouter(router_);
     }
 
     /// @notice Sets the router address
     /// @dev Only callable by owner
     /// @param router_ The address of the router
-    function setRouter(address router_) external onlyOwner {
+    function setRouter(address router_) public onlyOwner {
+        if (router_ == address(0)) revert InvalidRouter();
         router = router_;
         emit RouterSet(router_);
     }

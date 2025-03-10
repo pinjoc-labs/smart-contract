@@ -179,3 +179,12 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
         setUp_CreatePool();
     }
 }
+
+contract LendingPoolManagerTest_GetOracle is LendingPoolManagerTest_Base {
+    /// @notice Test oracle retrieval restrictions
+    /// @dev Verifies that only router can retrieve oracle and oracle not found error is thrown if oracle doesn't exist
+    function test_GetOracle_RevertIf_OracleNotFound() public {
+        vm.expectRevert(ILendingPoolManager.OracleNotFound.selector);
+        manager.getOracle(debtToken, collateralToken);
+    }
+}

@@ -7,6 +7,9 @@ import {LendingPool} from "../LendingPool.sol";
 /// @notice Manages the creation and retrieval of lending pools with different parameters
 /// @dev Implements access control and prevents reentrancy attacks
 interface ILendingPoolManager {
+    /// @notice Thrown when attempting to set an invalid router address
+    error InvalidRouter();
+
     /// @notice Thrown when the caller is not the router
     error OnlyRouter();
 
