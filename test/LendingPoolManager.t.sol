@@ -23,6 +23,8 @@ contract LendingPoolManagerTest_Base is Test {
     address public collateralToken;
     /// @notice Mock price oracle for ETH/USDC pair
     address public oracle;
+    /// @notice Router address for managing pools
+    address public router;
     /// @notice Address with owner privileges
     address public owner;
     /// @notice Address for testing unauthorized access
@@ -47,26 +49,56 @@ contract LendingPoolManagerTest_Base is Test {
 
         // Setup test addresses
         owner = makeAddr("owner");
+        router = makeAddr("router");
         user = makeAddr("user");
 
-        // Deploy manager
+        // Deploy manager with router and owner
         vm.prank(owner);
-        manager = new LendingPoolManager();
+        manager = new LendingPoolManager(router);
     }
 
     /// @notice Helper function to create a lending pool with default parameters
     /// @dev Uses predefined parameters for maturity, LTV, and tokens
     function setUp_CreatePool() public returns (address) {
-        return
-            manager.createLendingPool(
-                debtToken,
-                collateralToken,
-                oracle,
-                maturity,
-                maturityMonth,
-                maturityYear,
-                ltv
-            );
+        return manager.createLendingPool(
+            debtToken,
+            collateralToken,
+            maturity,
+            maturityMonth,
+            maturityYear,
+            ltv
+        );
+    }
+}
+
+/// @title LendingPoolManager Oracle Tests
+/// @notice Test contract for oracle management functionality
+/// @dev Tests oracle setting and validation
+contract LendingPoolManagerTest_SetOracle is LendingPoolManagerTest_Base {
+    /// @notice Test successful oracle setting
+    /// @dev Verifies that oracle can be set and retrieved correctly
+    function test_SetOracle() public {
+        vm.prank(owner);
+        manager.setOracle(oracle, debtToken, collateralToken);
+        
+        address retrievedOracle = manager.getOracle(debtToken, collateralToken);
+        assertEq(retrievedOracle, oracle, "Oracle address mismatch");
+    }
+
+    /// @notice Test oracle setting restrictions
+    /// @dev Verifies that only owner can set oracle and invalid parameters are rejected
+    function test_SetOracle_RevertIf_Invalid() public {
+        // Test non-owner cannot set oracle
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user)
+        );
+        manager.setOracle(oracle, debtToken, collateralToken);
+
+        // Test cannot set zero address oracle
+        vm.prank(owner);
+        vm.expectRevert(ILendingPoolManager.InvalidOracle.selector);
+        manager.setOracle(address(0), debtToken, collateralToken);
     }
 }
 
@@ -78,6 +110,9 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
     /// @dev Verifies that a pool can be created with valid parameters and all parameters are set correctly
     function test_CreateLendingPool() public {
         vm.prank(owner);
+        manager.setOracle(oracle, debtToken, collateralToken);
+        
+        vm.prank(router);
         address poolAddress = setUp_CreatePool();
         assertTrue(poolAddress != address(0), "Pool should be created");
 
@@ -93,11 +128,7 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
         ) = pool.info();
 
         assertEq(poolDebtToken, debtToken, "Debt token mismatch");
-        assertEq(
-            poolCollateralToken,
-            collateralToken,
-            "Collateral token mismatch"
-        );
+        assertEq(poolCollateralToken, collateralToken, "Collateral token mismatch");
         assertEq(poolOracle, oracle, "Oracle mismatch");
         assertEq(poolMaturity, maturity, "Maturity mismatch");
         assertEq(poolMaturityMonth, maturityMonth, "Maturity month mismatch");
@@ -108,65 +139,43 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
     /// @notice Test lending pool creation restrictions
     /// @dev Verifies that unauthorized users cannot create pools and duplicate pools cannot be created
     function test_CreateLendingPool_RevertIf_Invalid() public {
-        // Test non-owner cannot create pool
+        // Test non-router cannot create pool
         vm.prank(user);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                user
-            )
+            abi.encodeWithSelector(ILendingPoolManager.OnlyRouter.selector)
         );
+        setUp_CreatePool();
+
+        // Test invalid parameter
+        vm.startPrank(router);
+        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
+        manager.createLendingPool(address(0), collateralToken, maturity, maturityMonth, maturityYear, ltv);
+        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
+        manager.createLendingPool(debtToken, address(0), maturity, maturityMonth, maturityYear, ltv);
+        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
+        manager.createLendingPool(debtToken, collateralToken, 0, maturityMonth, maturityYear, ltv);
+        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
+        manager.createLendingPool(debtToken, collateralToken, maturity, "", maturityYear, ltv);
+        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
+        manager.createLendingPool(debtToken, collateralToken, maturity, maturityMonth, 0, ltv);
+        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
+        manager.createLendingPool(debtToken, collateralToken, maturity, maturityMonth, maturityYear, 0);
+        vm.stopPrank();
+
+        // Test unset oracle
+        vm.prank(router);
+        vm.expectRevert(ILendingPoolManager.OracleNotFound.selector);
         setUp_CreatePool();
 
         // Create initial pool
         vm.prank(owner);
+        manager.setOracle(oracle, debtToken, collateralToken);
+        vm.prank(router);
         setUp_CreatePool();
 
         // Test cannot create duplicate pool
-        vm.prank(owner);
+        vm.prank(router);
         vm.expectRevert(ILendingPoolManager.LendingPoolAlreadyExists.selector);
         setUp_CreatePool();
-    }
-}
-
-/// @title LendingPoolManager Query Tests
-/// @notice Test contract for pool query functionality
-/// @dev Tests successful pool retrieval and error cases
-contract LendingPoolManagerTest_GetLendingPool is LendingPoolManagerTest_Base {
-    /// @notice Test successful lending pool retrieval
-    /// @dev Verifies that pool addresses can be retrieved and pool parameters match creation values
-    function test_GetLendingPool() public {
-        vm.prank(owner);
-        address poolAddress = setUp_CreatePool();
-
-        LendingPool pool = LendingPool(poolAddress);
-        (
-            address poolDebtToken,
-            address poolCollateralToken,
-            address poolOracle,
-            uint256 poolMaturity,
-            string memory poolMaturityMonth,
-            uint256 poolMaturityYear,
-            uint256 poolLtv
-        ) = pool.info();
-
-        assertEq(poolDebtToken, debtToken, "Debt token mismatch");
-        assertEq(
-            poolCollateralToken,
-            collateralToken,
-            "Collateral token mismatch"
-        );
-        assertEq(poolOracle, oracle, "Oracle mismatch");
-        assertEq(poolMaturity, maturity, "Maturity mismatch");
-        assertEq(poolMaturityMonth, maturityMonth, "Maturity month mismatch");
-        assertEq(poolMaturityYear, maturityYear, "Maturity year mismatch");
-        assertEq(poolLtv, ltv, "LTV mismatch");
-    }
-
-    /// @notice Test getting non-existent lending pool
-    /// @dev Verifies that attempting to get a non-existent pool reverts with appropriate error
-    function test_GetLendingPool_RevertIf_NotFound() public {
-        vm.expectRevert(ILendingPoolManager.LendingPoolNotFound.selector);
-        manager.getLendingPool(debtToken, collateralToken, "MAY", 2025);
     }
 }

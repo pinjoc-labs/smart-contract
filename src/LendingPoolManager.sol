@@ -14,12 +14,36 @@ import {LendingPool} from "./LendingPool.sol";
 /// @notice Manages the creation and retrieval of lending pools with different parameters
 /// @dev Implements access control and prevents reentrancy attacks
 contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
+
+    /// @notice Address of the lending router
+    address public router;
+
     /// @notice Mapping from pool key to LendingPool contract
     /// @dev Key is generated from debt token, collateral token, maturity month and year
     mapping(bytes32 => address) public lendingPools;
 
+    /// @notice Mapping from oracle key to oracle address
+    /// @dev Key is generated from debt token and collateral token
+    mapping(bytes32 => address) public oracles;
+
+    /// @notice Modifier to ensure the caller is the router
+    modifier onlyRouter() {
+        if (msg.sender != router) revert OnlyRouter();
+        _;
+    }
+
     /// @notice Initializes the contract with the deployer as owner
-    constructor() Ownable(msg.sender) {}
+    constructor(address router_) Ownable(msg.sender) {
+        router = router_;
+    }
+
+    /// @notice Sets the router address
+    /// @dev Only callable by owner
+    /// @param router_ The address of the router
+    function setRouter(address router_) external onlyOwner {
+        router = router_;
+        emit RouterSet(router_);
+    }
 
     /// @notice Generates a unique key for a lending pool based on its parameters
     /// @dev Uses keccak256 hash of concatenated parameters
@@ -45,11 +69,42 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
             );
     }
 
-    /// @notice Creates a new lending pool with specified parameters
-    /// @dev Only callable by owner, implements reentrancy protection
+    /// @notice Generates a unique key for an oracle based on its parameters
+    /// @dev Uses keccak256 hash of concatenated parameters
     /// @param debtToken_ The token that can be borrowed from the pool
     /// @param collateralToken_ The token that can be used as collateral
-    /// @param oracle_ The price oracle for the collateral token
+    /// @return The unique key for the oracle
+    function _generateOracleKey(address debtToken_, address collateralToken_) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(debtToken_, collateralToken_));
+    }
+
+    /// @notice Sets the oracle for a lending pool
+    /// @dev Only callable by owner, implements reentrancy protection
+    /// @param oracle_ The address of the oracle
+    /// @param debtToken_ The token that can be borrowed from the pool
+    /// @param collateralToken_ The token that can be used as collateral
+    function setOracle(address oracle_, address debtToken_, address collateralToken_) external onlyOwner {
+        if (oracle_ == address(0)) revert InvalidOracle();
+        bytes32 key = _generateOracleKey(debtToken_, collateralToken_);
+        oracles[key] = oracle_;
+        emit OracleSet(oracle_, debtToken_, collateralToken_);
+    }
+
+    /// @notice Retrieves the address of an oracle based on its parameters  
+    /// @dev Reverts if the oracle doesn't exist
+    /// @param debtToken_ The token that can be borrowed from the pool
+    /// @param collateralToken_ The token that can be used as collateral
+    /// @return The address of the oracle
+    function getOracle(address debtToken_, address collateralToken_) external view returns (address) {
+        bytes32 key = _generateOracleKey(debtToken_, collateralToken_);
+        if (oracles[key] == address(0)) revert OracleNotFound();
+        return oracles[key];
+    }
+
+    /// @notice Creates a new lending pool with specified parameters
+    /// @dev Only callable by router, implements reentrancy protection
+    /// @param debtToken_ The token that can be borrowed from the pool
+    /// @param collateralToken_ The token that can be used as collateral
     /// @param maturity_ The timestamp when the pool matures
     /// @param maturityMonth_ The month when the pool matures (e.g., "MAY")
     /// @param maturityYear_ The year when the pool matures
@@ -58,33 +113,45 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
     function createLendingPool(
         address debtToken_,
         address collateralToken_,
-        address oracle_,
         uint256 maturity_,
         string memory maturityMonth_,
         uint256 maturityYear_,
         uint256 ltv_
-    ) external onlyOwner nonReentrant returns (address) {
-        bytes32 key = _generateLendingPoolKey(
+    ) external onlyRouter nonReentrant returns (address) {
+        if (
+            debtToken_ == address(0) ||
+            collateralToken_ == address(0) ||
+            maturity_ == 0 ||
+            bytes(maturityMonth_).length == 0 ||
+            maturityYear_ == 0 ||
+            ltv_ == 0
+        ) revert InvalidCreateLendingPoolParameter();
+
+        bytes32 oracleKey = _generateOracleKey(debtToken_, collateralToken_);
+        if (oracles[oracleKey] == address(0)) revert OracleNotFound();
+
+        bytes32 lendingPoolKey = _generateLendingPoolKey(
             debtToken_,
             collateralToken_,
             maturityMonth_,
             maturityYear_
         );
-        if (lendingPools[key] != address(0)) revert LendingPoolAlreadyExists();
+        if (lendingPools[lendingPoolKey] != address(0)) revert LendingPoolAlreadyExists();
+        
         ILendingPool.LendingPoolInfo memory info = ILendingPool
             .LendingPoolInfo({
                 debtToken: debtToken_,
                 collateralToken: collateralToken_,
-                oracle: oracle_,
+                oracle: oracles[oracleKey],
                 maturity: maturity_,
                 maturityMonth: maturityMonth_,
                 maturityYear: maturityYear_,
                 ltv: ltv_
             });
-        lendingPools[key] = address(new LendingPool(msg.sender, info));
-        emit LendingPoolCreated(lendingPools[key], msg.sender, info);
+        lendingPools[lendingPoolKey] = address(new LendingPool(msg.sender, info));
+        emit LendingPoolCreated(lendingPools[lendingPoolKey], msg.sender, info);
 
-        return lendingPools[key];
+        return lendingPools[lendingPoolKey];
     }
 
     /// @notice Retrieves the address of a lending pool based on its parameters
