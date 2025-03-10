@@ -176,6 +176,7 @@ contract LendingCLOB is ILendingCLOB, Ownable {
         // Keep track of total matched for the newOrder
         uint256 totalMatchedForNewOrder;
         uint256 originalNewAmount = newOrder.amount;
+        uint256 originalNewCollateralAmount = newOrder.collateralAmount;
 
         // ---------------------------
         // 3. Match loop
@@ -203,6 +204,11 @@ contract LendingCLOB is ILendingCLOB, Ownable {
                 newOrder.amount -= matchedAmount;
                 matchOrder.amount = 0;
                 matchOrder.status = Status.FILLED;
+
+                // Calculate and update collateral amounts for new order
+                if (newOrder.side == Side.BORROW) {
+                    newOrder.collateralAmount -= (matchOrder.collateralAmount * matchedAmount) / originalMatchAmount;
+                }
 
                 if (newOrder.amount == 0) {
                     newOrder.status = Status.FILLED;
@@ -246,6 +252,11 @@ contract LendingCLOB is ILendingCLOB, Ownable {
                 newOrder.amount = 0;
                 newOrder.status = Status.FILLED;
 
+                // Calculate and update collateral amounts for new order
+                if (newOrder.side == Side.BORROW) {
+                    newOrder.collateralAmount = 0;
+                }
+
                 emit OrderMatched(
                     newOrder.id,
                     matchOrder.id,
@@ -288,7 +299,9 @@ contract LendingCLOB is ILendingCLOB, Ownable {
             traderOrders[newOrder.trader].push(newOrder);
         } else {
             // (FILLED or PARTIALLY_FILLED)
-            // We record it once in traderOrders
+            if (newOrder.status == Status.PARTIALLY_FILLED) {
+                orderQueue[newOrder.rate][newOrder.side].push(newOrder);
+            }
             traderOrders[newOrder.trader].push(newOrder);
         }
 
@@ -305,9 +318,7 @@ contract LendingCLOB is ILendingCLOB, Ownable {
             // Calculate matched collateral amount proportionally
             uint256 matchedCollateralAmount = 0;
             if (newOrder.side == Side.BORROW) {
-                matchedCollateralAmount =
-                    (newOrder.collateralAmount * totalMatchedForNewOrder) /
-                    originalNewAmount;
+                matchedCollateralAmount = (originalNewCollateralAmount * totalMatchedForNewOrder) / originalNewAmount;
             }
 
             MatchedInfo memory newOrderInfo = MatchedInfo({
@@ -515,9 +526,8 @@ contract LendingCLOB is ILendingCLOB, Ownable {
         uint256 matchedCollateralAmount = 0;
         if (matchOrder.side == Side.BORROW) {
             // For borrow orders, calculate collateral proportionally
-            matchedCollateralAmount =
-                (matchOrder.collateralAmount * matchedAmount) /
-                originalMatchAmount;
+            matchedCollateralAmount = (matchOrder.collateralAmount * matchedAmount) / originalMatchAmount;
+            matchOrder.collateralAmount -= matchedCollateralAmount;
         }
 
         MatchedInfo memory info = MatchedInfo({
@@ -533,7 +543,7 @@ contract LendingCLOB is ILendingCLOB, Ownable {
             matchOrder.id,
             matchOrder.trader,
             originalMatchAmount - matchedAmount,
-            matchOrder.collateralAmount - matchedCollateralAmount,
+            matchOrder.collateralAmount,
             matchOrder.status
         );
 

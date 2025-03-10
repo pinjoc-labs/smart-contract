@@ -13,10 +13,10 @@ import {ILendingCLOB} from "./interfaces/ILendingCLOB.sol";
 import {ILendingPool} from "./interfaces/ILendingPool.sol";
 import {LendingPool} from "./LendingPool.sol";
 
-/// @title PinjocRouter - Router contract for managing lending orders and pool interactions
+/// @title PinjocLendingRouter - Router contract for managing lending orders and pool interactions
 /// @notice Handles order placement, matching, and execution in the lending protocol
 /// @dev Implements order book management, pool interactions, and collateral health checks
-contract PinjocRouter is Ownable, ReentrancyGuard {
+contract PinjocLendingRouter is Ownable, ReentrancyGuard {
     /// @notice Error thrown when an invalid lending CLOB manager address is provided
     error InvalidLendingCLOBManager();
 
@@ -212,7 +212,6 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
             _debtToken == address(0) ||
             _collateralToken == address(0) ||
             _amount == 0 ||
-            _collateralAmount == 0 ||
             _rate == 0 ||
             _maturity == 0 ||
             bytes(_maturityMonth).length == 0 ||
@@ -221,15 +220,20 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
 
         address orderBookAddr = _getOrderBookAddress(_debtToken, _collateralToken, _maturityMonth, _maturityYear);
 
-        // Send token to the order book
+        // Handle token transfers and approvals
         if (_side == ILendingCLOB.Side.LEND) {
+            // Check balance and approve router first
             if (IERC20(_debtToken).balanceOf(msg.sender) < _amount)
                 revert BalanceNotEnough(
                     _debtToken,
                     IERC20(_debtToken).balanceOf(msg.sender),
                     _amount
                 );
+            
+            // Transfer from user to router
             IERC20(_debtToken).transferFrom(msg.sender, address(this), _amount);
+            
+            // Approve CLOB to spend router's tokens
             IERC20(_debtToken).approve(orderBookAddr, _amount);
         } else {
             _isHealthy(
@@ -242,10 +246,14 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
                 _collateralAmount
             );
 
+            // Transfer collateral from user to router
             IERC20(_collateralToken).transferFrom(msg.sender, address(this), _collateralAmount);
+            
+            // Approve CLOB to spend router's collateral
             IERC20(_collateralToken).approve(orderBookAddr, _collateralAmount);
         }
 
+        // Place order in CLOB
         ILendingCLOB orderBook = ILendingCLOB(orderBookAddr);
         (
             ILendingCLOB.MatchedInfo[] memory matchedLendOrders,
@@ -266,13 +274,24 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
             _maturityYear
         );
 
+        // Add borrow rate if it doesn't exist
+        if (matchedLendOrders.length > 0 || matchedBorrowOrders.length > 0) {
+            (,,,,,,bool active) = LendingPool(lendingPoolAddress).lendingPoolStates(_rate);
+            if (!active) {
+                LendingPool(lendingPoolAddress).addBorrowRate(_rate);
+            }
+        }
+
+        // Handle matched orders
         if (_side == ILendingCLOB.Side.LEND && matchedLendOrders.length > 0) {
+            // Handle lender's matched order
             ILendingPool(lendingPoolAddress).supply(
                 _rate,
                 matchedLendOrders[0].trader,
                 matchedLendOrders[0].matchAmount
             );
 
+            // Handle borrower's matched orders
             for (uint256 i = 0; i < matchedBorrowOrders.length; i++) {
                 uint256 partialCollat = matchedBorrowOrders[i].matchCollateralAmount;
                 uint256 portionOfDebt = matchedBorrowOrders[i].matchAmount;
@@ -288,6 +307,7 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
                     portionOfDebt
                 );
 
+                // Transfer matched amounts between parties
                 orderBook.transferFrom(
                     matchedBorrowOrders[i].trader,
                     lendingPoolAddress,
@@ -305,12 +325,14 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
             uint256 partialCollat = matchedBorrowOrders[0].matchCollateralAmount;
             uint256 portionOfDebt = matchedBorrowOrders[0].matchAmount;
 
+            // Handle borrower's matched order
             ILendingPool(lendingPoolAddress).supplyCollateral(
                 _rate,
                 matchedBorrowOrders[0].trader,
                 partialCollat
             );
 
+            // Handle lender's matched orders
             for (uint256 i = 0; i < matchedLendOrders.length; i++) {
                 uint256 portionOfDebtLend = matchedLendOrders[i].matchAmount;
 
@@ -320,6 +342,7 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
                     portionOfDebtLend
                 );
 
+                // Transfer matched amounts between parties
                 orderBook.transferFrom(
                     matchedLendOrders[i].trader,
                     matchedBorrowOrders[0].trader,
@@ -328,6 +351,7 @@ contract PinjocRouter is Ownable, ReentrancyGuard {
                 );
             }
 
+            // Complete borrower's transaction
             ILendingPool(lendingPoolAddress).borrow(
                 _rate,
                 matchedBorrowOrders[0].trader,
