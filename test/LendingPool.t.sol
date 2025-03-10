@@ -21,6 +21,7 @@ contract LendingPoolTest_Base is Test {
     address public debtToken;
     address public collateralToken;
     address public oracle;
+    address public owner;
     address public router;
     address public address1;
     address public address2;
@@ -35,6 +36,7 @@ contract LendingPoolTest_Base is Test {
         MockOracle(oracle).setPrice(2000e6);
 
         // Setup test addresses
+        owner = makeAddr("owner");
         router = makeAddr("router");
         address1 = makeAddr("address1");
         address2 = makeAddr("address2");
@@ -52,8 +54,7 @@ contract LendingPoolTest_Base is Test {
             });
 
         // Deploy lending pool
-        vm.prank(router);
-        lendingPool = new LendingPool(router, info);
+        lendingPool = new LendingPool(owner, router, info);
     }
 
     /// @notice Helper function to add a borrow rate to the lending pool
@@ -168,37 +169,37 @@ contract LendingPoolTest_Constructor is LendingPoolTest_Base {
             });
 
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
 
         invalidInfo.debtToken = debtToken;
         invalidInfo.collateralToken = address(0);
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
 
         invalidInfo.collateralToken = collateralToken;
         invalidInfo.oracle = address(0);
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
 
         invalidInfo.oracle = oracle;
         invalidInfo.maturity = block.timestamp - 1;
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
 
         invalidInfo.maturity = block.timestamp + 365 days;
         invalidInfo.maturityMonth = "";
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
 
         invalidInfo.maturityMonth = "MAY";
         invalidInfo.maturityYear = 0;
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
 
         invalidInfo.maturityYear = 2025;
         invalidInfo.ltv = 0;
         vm.expectRevert(ILendingPool.InvalidLendingPoolInfo.selector);
-        new LendingPool(router, invalidInfo);
+        new LendingPool(owner, router, invalidInfo);
     }
 }
 
@@ -223,10 +224,7 @@ contract LendingPoolTest_AddBorrowRate is LendingPoolTest_Base {
         // Test non-owner cannot add rate
         vm.prank(address1);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                address1
-            )
+            abi.encodeWithSelector(ILendingPool.InvalidRouter.selector)
         );
         lendingPool.addBorrowRate(5e16);
 
@@ -262,7 +260,7 @@ contract LendingPoolTest_LTV is LendingPoolTest_Base {
     /// @notice Test successful LTV update
     /// @dev Verifies that LTV can be updated by the owner
     function test_SetLtv() public {
-        vm.prank(router);
+        vm.prank(owner);
         lendingPool.setLtv(80e16);
 
         (, , , , , , uint256 ltv) = lendingPool.info();
@@ -283,13 +281,13 @@ contract LendingPoolTest_LTV is LendingPoolTest_Base {
         lendingPool.setLtv(80e16);
 
         // Test cannot set zero LTV
-        vm.prank(router);
+        vm.prank(owner);
         vm.expectRevert(ILendingPool.InvalidLTV.selector);
         lendingPool.setLtv(0);
 
         // Test cannot set LTV after maturity
         vm.warp(block.timestamp + 365 days + 1);
-        vm.prank(router);
+        vm.prank(owner);
         vm.expectRevert(ILendingPool.MaturityReached.selector);
         lendingPool.setLtv(80e16);
     }
@@ -345,10 +343,7 @@ contract LendingPoolTest_Supply is LendingPoolTest_Base {
         // Test non-owner cannot supply
         vm.prank(address1);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                address1
-            )
+            abi.encodeWithSelector(ILendingPool.InvalidRouter.selector)
         );
         lendingPool.supply(BORROW_RATE, address1, 1000e6);
 
@@ -418,10 +413,7 @@ contract LendingPoolTest_Borrow is LendingPoolTest_Base {
         // Test non-owner cannot borrow
         vm.prank(address1);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                address1
-            )
+            abi.encodeWithSelector(ILendingPool.InvalidRouter.selector)
         );
         lendingPool.borrow(BORROW_RATE, address1, 1000e6);
 
@@ -575,10 +567,7 @@ contract LendingPoolTest_Collateral is LendingPoolTest_Base {
         // Test non-owner cannot supply collateral
         vm.prank(address1);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                address1
-            )
+            abi.encodeWithSelector(ILendingPool.InvalidRouter.selector)
         );
         lendingPool.supplyCollateral(BORROW_RATE, address1, 1 ether);
 

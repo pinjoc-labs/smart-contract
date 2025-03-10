@@ -36,7 +36,7 @@ contract LendingPoolManagerTest_Base is Test {
     /// @notice Default maturity year
     uint256 maturityYear = 2025;
     /// @notice Default loan-to-value ratio (75%)
-    uint256 ltv = 75e16;
+    uint256 ltv = 90e16;
 
     /// @notice Setup function called before each test
     /// @dev Deploys mock tokens, oracle, and manager contract with initial configuration
@@ -65,8 +65,7 @@ contract LendingPoolManagerTest_Base is Test {
             collateralToken,
             maturity,
             maturityMonth,
-            maturityYear,
-            ltv
+            maturityYear
         );
     }
 }
@@ -149,17 +148,15 @@ contract LendingPoolManagerTest_Creation is LendingPoolManagerTest_Base {
         // Test invalid parameter
         vm.startPrank(router);
         vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
-        manager.createLendingPool(address(0), collateralToken, maturity, maturityMonth, maturityYear, ltv);
+        manager.createLendingPool(address(0), collateralToken, maturity, maturityMonth, maturityYear);
         vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
-        manager.createLendingPool(debtToken, address(0), maturity, maturityMonth, maturityYear, ltv);
+        manager.createLendingPool(debtToken, address(0), maturity, maturityMonth, maturityYear);
         vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
-        manager.createLendingPool(debtToken, collateralToken, 0, maturityMonth, maturityYear, ltv);
+        manager.createLendingPool(debtToken, collateralToken, 0, maturityMonth, maturityYear);
         vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
-        manager.createLendingPool(debtToken, collateralToken, maturity, "", maturityYear, ltv);
+        manager.createLendingPool(debtToken, collateralToken, maturity, "", maturityYear);
         vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
-        manager.createLendingPool(debtToken, collateralToken, maturity, maturityMonth, 0, ltv);
-        vm.expectRevert(ILendingPoolManager.InvalidCreateLendingPoolParameter.selector);
-        manager.createLendingPool(debtToken, collateralToken, maturity, maturityMonth, maturityYear, 0);
+        manager.createLendingPool(debtToken, collateralToken, maturity, maturityMonth, 0);
         vm.stopPrank();
 
         // Test unset oracle

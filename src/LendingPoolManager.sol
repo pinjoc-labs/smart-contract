@@ -108,23 +108,20 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
     /// @param maturity_ The timestamp when the pool matures
     /// @param maturityMonth_ The month when the pool matures (e.g., "MAY")
     /// @param maturityYear_ The year when the pool matures
-    /// @param ltv_ The loan-to-value ratio in 1e18 format (e.g., 75% = 75e16)
     /// @return The address of the created lending pool
     function createLendingPool(
         address debtToken_,
         address collateralToken_,
         uint256 maturity_,
         string memory maturityMonth_,
-        uint256 maturityYear_,
-        uint256 ltv_
+        uint256 maturityYear_
     ) external onlyRouter nonReentrant returns (address) {
         if (
             debtToken_ == address(0) ||
             collateralToken_ == address(0) ||
             maturity_ == 0 ||
             bytes(maturityMonth_).length == 0 ||
-            maturityYear_ == 0 ||
-            ltv_ == 0
+            maturityYear_ == 0
         ) revert InvalidCreateLendingPoolParameter();
 
         bytes32 oracleKey = _generateOracleKey(debtToken_, collateralToken_);
@@ -146,10 +143,11 @@ contract LendingPoolManager is ILendingPoolManager, Ownable, ReentrancyGuard {
                 maturity: maturity_,
                 maturityMonth: maturityMonth_,
                 maturityYear: maturityYear_,
-                ltv: ltv_
+                ltv: 90e16
             });
-        lendingPools[lendingPoolKey] = address(new LendingPool(msg.sender, info));
-        emit LendingPoolCreated(lendingPools[lendingPoolKey], msg.sender, info);
+        // msg.sender is the router
+        lendingPools[lendingPoolKey] = address(new LendingPool(owner(), msg.sender, info));
+        emit LendingPoolCreated(lendingPools[lendingPoolKey], owner(), msg.sender, info);
 
         return lendingPools[lendingPoolKey];
     }

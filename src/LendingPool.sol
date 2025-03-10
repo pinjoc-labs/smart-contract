@@ -29,18 +29,27 @@ contract LendingPool is ILendingPool, Ownable, ReentrancyGuard {
         _;
     }
 
+    modifier onlyRouter() {
+        if (msg.sender != router) revert InvalidRouter();
+        _;
+    }
+
+    address public router;
     /// @notice The lending pool's configuration information
     LendingPoolInfo public info;
     /// @notice Mapping of borrow rates to their respective lending pool states
     mapping(uint256 => LendingPoolState) public lendingPoolStates;
 
     /// @notice Creates a new lending pool with specified parameters
+    /// @param owner_ Address of the owner of the lending pool
     /// @param router_ Address of the router controlling the lending pool
     /// @param info_ Struct containing pool configuration parameters
     constructor(
+        address owner_,
         address router_,
         LendingPoolInfo memory info_
-    ) Ownable(router_) {
+    ) Ownable(owner_) {
+        if (router_ == address(0)) revert InvalidRouter();
         if (
             info_.debtToken == address(0) ||
             info_.collateralToken == address(0) ||
@@ -50,7 +59,16 @@ contract LendingPool is ILendingPool, Ownable, ReentrancyGuard {
             info_.maturityYear == 0 ||
             info_.ltv == 0
         ) revert InvalidLendingPoolInfo();
+        router = router_;
         info = info_;
+    }
+
+    /// @notice Sets the router address
+    /// @dev Only callable by the current router
+    /// @param router_ The new router address
+    function setRouter(address router_) external onlyOwner {
+        if (router_ == address(0)) revert InvalidRouter();
+        router = router_;
     }
 
     /// @notice Adds a new borrow rate tier to the lending pool
@@ -58,7 +76,7 @@ contract LendingPool is ILendingPool, Ownable, ReentrancyGuard {
     /// @dev Creates a new PinjocToken contract for this borrow rate tier
     function addBorrowRate(
         uint256 borrowRate_
-    ) external onlyOwner onlyBeforeMaturity {
+    ) external onlyRouter onlyBeforeMaturity {
         if (lendingPoolStates[borrowRate_].isActive)
             revert BorrowRateAlreadyExists();
         if (borrowRate_ == 0 || borrowRate_ == 100e16)
@@ -105,7 +123,7 @@ contract LendingPool is ILendingPool, Ownable, ReentrancyGuard {
         uint256 amount
     )
         external
-        onlyOwner
+        onlyRouter
         nonReentrant
         onlyActiveBorrowRate(borrowRate)
         onlyBeforeMaturity
@@ -145,7 +163,7 @@ contract LendingPool is ILendingPool, Ownable, ReentrancyGuard {
         uint256 amount
     )
         external
-        onlyOwner
+        onlyRouter
         nonReentrant
         onlyActiveBorrowRate(borrowRate)
         onlyBeforeMaturity
@@ -217,7 +235,7 @@ contract LendingPool is ILendingPool, Ownable, ReentrancyGuard {
         uint256 amount
     )
         external
-        onlyOwner
+        onlyRouter
         nonReentrant
         onlyActiveBorrowRate(borrowRate)
         onlyBeforeMaturity

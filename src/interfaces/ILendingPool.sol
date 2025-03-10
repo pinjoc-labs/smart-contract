@@ -44,6 +44,8 @@ interface ILendingPool {
         bool isActive;
     }
 
+    /// @notice Thrown when an invalid router address is provided
+    error InvalidRouter();
     /// @notice Thrown when an invalid borrow rate is provided
     error InvalidBorrowRate();
     /// @notice Thrown when an invalid LTV value is provided
@@ -151,6 +153,11 @@ interface ILendingPool {
         uint256 amount,
         uint256 collateral
     );
+
+    /// @notice Sets the router address
+    /// @dev Only callable by the current router
+    /// @param router_ The new router address
+    function setRouter(address router_) external;
 
     /// @notice Adds a new borrow rate tier to the lending pool
     /// @param borrowRate_ The borrow rate to add (in 1e18 format, e.g., 5% = 5e16)

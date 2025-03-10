@@ -31,10 +31,12 @@ interface ILendingPoolManager {
 
     /// @notice Emitted when a new lending pool is created
     /// @param lendingPool The address of the created lending pool
+    /// @param owner The address of the owner of the pool
     /// @param creator The address that created the pool
     /// @param info The configuration parameters of the created pool
     event LendingPoolCreated(
         address lendingPool,
+        address owner,
         address indexed creator,
         LendingPool.LendingPoolInfo info
     );
@@ -75,15 +77,13 @@ interface ILendingPoolManager {
     /// @param maturity_ The timestamp when the pool matures
     /// @param maturityMonth_ The month when the pool matures (e.g., "MAY")
     /// @param maturityYear_ The year when the pool matures
-    /// @param ltv_ The loan-to-value ratio in 1e18 format (e.g., 75% = 75e16)
     /// @return The address of the created lending pool
     function createLendingPool(
         address debtToken_,
         address collateralToken_,
         uint256 maturity_,
         string memory maturityMonth_,
-        uint256 maturityYear_,
-        uint256 ltv_
+        uint256 maturityYear_
     ) external returns (address);
 
     /// @notice Retrieves the address of a lending pool based on its parameters
