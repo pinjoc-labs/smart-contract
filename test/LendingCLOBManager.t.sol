@@ -23,6 +23,8 @@ contract LendingCLOBManagerTest_Base is Test {
     address public collateralToken;
     /// @notice Address with owner privileges
     address public owner;
+    /// @notice Address of the router
+    address public router;
     /// @notice Address for testing unauthorized access
     address public user;
     /// @notice Default maturity month string
@@ -40,10 +42,11 @@ contract LendingCLOBManagerTest_Base is Test {
         // Setup test addresses
         owner = makeAddr("owner");
         user = makeAddr("user");
+        router = makeAddr("router");
 
         // Deploy manager
         vm.prank(owner);
-        manager = new LendingCLOBManager();
+        manager = new LendingCLOBManager(router);
     }
 
     /// @notice Helper function to create a lending CLOB with default parameters
@@ -66,7 +69,7 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
     /// @notice Test successful lending CLOB creation
     /// @dev Verifies that a CLOB can be created with valid parameters and all parameters are set correctly
     function test_CreateLendingCLOB() public {
-        vm.prank(owner);
+        vm.prank(router);
         address clobAddress = setUp_CreateCLOB();
         assertTrue(clobAddress != address(0), "CLOB should be created");
 
@@ -89,7 +92,7 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
     /// @notice Test lending CLOB creation restrictions
     /// @dev Verifies that unauthorized users cannot create CLOB and duplicate CLOB cannot be created
     function test_CreateLendingCLOB_RevertIf_Invalid() public {
-        // Test non-owner cannot create CLOB
+        // Test non-router cannot create CLOB
         vm.prank(user);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -100,11 +103,11 @@ contract LendingCLOBManagerTest_Creation is LendingCLOBManagerTest_Base {
         setUp_CreateCLOB();
 
         // Create initial CLOB
-        vm.prank(owner);
+        vm.prank(router);
         setUp_CreateCLOB();
 
         // Test cannot create duplicate CLOB
-        vm.prank(owner);
+        vm.prank(router);
         vm.expectRevert(ILendingCLOBManager.LendingCLOBAlreadyExists.selector);
         setUp_CreateCLOB();
     }
@@ -117,7 +120,7 @@ contract LendingCLOBManagerTest_GetLendingCLOB is LendingCLOBManagerTest_Base {
     /// @notice Test successful lending CLOB retrieval
     /// @dev Verifies that CLOB addresses can be retrieved and CLOB parameters match creation values
     function test_GetLendingCLOB() public {
-        vm.prank(owner);
+        vm.prank(router);
         setUp_CreateCLOB();
         address retrievedClobAddress = manager.getLendingCLOB(
             debtToken,

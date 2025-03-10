@@ -17,8 +17,9 @@ contract LendingCLOBManager is ILendingCLOBManager, Ownable, ReentrancyGuard {
     /// @dev Key is generated from debt token, collateral token, maturity month and year
     mapping(bytes32 => address) public lendingCLOB;
 
-    /// @notice Initializes the contract with the deployer as owner
-    constructor() Ownable(msg.sender) {}
+    /// @notice Initializes the contract with the router address
+    /// @param router_ The address of the router
+    constructor(address router_) Ownable(router_) {}
 
     /// @notice Generates a unique key for a lending CLOB based on its parameters
     /// @dev Uses keccak256 hash of concatenated parameters
