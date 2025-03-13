@@ -31,7 +31,7 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 - 📝 **Language**: Solidity ^0.8.19
 - 🏗 **Framework**: Foundry
 - ⛓ **Blockchain**: Ethereum & monad Network
-- 💱 **DEX Integration**: Pinjoc CLOB System
+- 💱 **CLOB Integration**: Pinjoc CLOB System
 
 ### 🛠 Development Tools
 - 🧪 **Testing**: Forge (Foundry's testing framework)
@@ -52,7 +52,7 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 ## 🔍 Technical Highlights
 
 ### 📑 On-Chain Order Book
-- ⚡ Pinjoc DEX order book system for loan matching
+- ⚡ Pinjoc CLOB order book system for loan matching
 - 🚀 Deployed on Monad Network 
 - 💰 Low-cost transactions and settlement
 - 📊 Real-time interest rate price discovery
