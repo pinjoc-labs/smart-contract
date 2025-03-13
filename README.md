@@ -2,7 +2,7 @@
 
 ## 📜 Description
 
-PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi lending by implementing a market-driven interest rate mechanism. Built on monad network, the protocol leverages CLOB (Central Limit Order Book) technology from GTX DEX to ensure efficient price discovery and optimal interest rate determination based on real-time supply and demand dynamics.
+PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi lending by implementing a market-driven interest rate mechanism. Built on monad network, the protocol leverages CLOB (Central Limit Order Book) technology using our own Pinjoc CLOB to ensure efficient price discovery and optimal interest rate determination based on real-time supply and demand dynamics.
 
 ---
 
@@ -17,7 +17,7 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 
 ## ✅ Solutions
 
-- 📈 **CLOB Matching**: Pinjoc DEX order book & monad the fastest chain
+- 📈 **CLOB Matching**: Pinjoc CLOB monad the fastest chain
 - 🔒 **Fixed Rate, Fixed Term**: Lock interest rate and maturity date
 - 📉 **Market-Based Rates**: Interest rates based on supply and demand
 - 🔄 **Auto-Roll Supply**: Automated re-lend funds into a new loan
@@ -31,7 +31,7 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 - 📝 **Language**: Solidity ^0.8.19
 - 🏗 **Framework**: Foundry
 - ⛓ **Blockchain**: Ethereum & monad Network
-- 💱 **DEX Integration**: GTX CLOB System
+- 💱 **DEX Integration**: Pinjoc CLOB System
 
 ### 🛠 Development Tools
 - 🧪 **Testing**: Forge (Foundry's testing framework)
