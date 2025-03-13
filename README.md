@@ -17,7 +17,7 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 
 ## ✅ Solutions
 
-- 📈 **CLOB Matching**: GTX DEX order book & monad the fastest chain
+- 📈 **CLOB Matching**: Pinjoc DEX order book & monad the fastest chain
 - 🔒 **Fixed Rate, Fixed Term**: Lock interest rate and maturity date
 - 📉 **Market-Based Rates**: Interest rates based on supply and demand
 - 🔄 **Auto-Roll Supply**: Automated re-lend funds into a new loan
@@ -52,7 +52,7 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 ## 🔍 Technical Highlights
 
 ### 📑 On-Chain Order Book
-- ⚡ GTX DEX order book system for loan matching
+- ⚡ Pinjoc DEX order book system for loan matching
 - 🚀 Deployed on Monad Network 
 - 💰 Low-cost transactions and settlement
 - 📊 Real-time interest rate price discovery
