@@ -70,26 +70,18 @@ PINJOC is a decentralized fixed-rate lending protocol that revolutionizes DeFi l
 - 📉 Safety margin calculations
 
 ### 🔍 Smart Contract Addresses
+You can check or access the smart contracts on [Monad Testnet Explorer](https://testnet.monadexplorer.com/):
 
-You can check or access the smart contracts on Monad Testnet Explorer:https://testnet.monadexplorer.com/
+- 🪙 **USDC**: [`0x794Bc7Bcb31F39009827Db1e230fDBEa99830F25`](https://testnet.monadexplorer.com/address/0x794Bc7Bcb31F39009827Db1e230fDBEa99830F25)
+- ⚡ **WETH**: [`0x4c1D0b1611155Cc477024C4bbaaD473859c6CD40`](https://testnet.monadexplorer.com/address/0x4c1D0b1611155Cc477024C4bbaaD473859c6CD40)
+- 💰 **WBTC**: [`0x9c0E6Bb26f03E980A0C3B2Ab25fb99B7C75a6957`](https://testnet.monadexplorer.com/address/0x9c0E6Bb26f03E980A0C3B2Ab25fb99B7C75a6957)
+- 🌊 **WSOL**: [`0x1C55018d65143E9F55ea68021687DEDe068d7F4e`](https://testnet.monadexplorer.com/address/0x1C55018d65143E9F55ea68021687DEDe068d7F4e)
+- 🔗 **WLINK**: [`0xfb24385adaa92B68DcdA5163a3Ba3Cd98BD898CE`](https://testnet.monadexplorer.com/address/0xfb24385adaa92B68DcdA5163a3Ba3Cd98BD898CE)
+- 🔵 **WAAVE**: [`0xE96D7715CEbe80849b9Ebd6a58172c365Bf8Ebe3`](https://testnet.monadexplorer.com/address/0xE96D7715CEbe80849b9Ebd6a58172c365Bf8Ebe3)
+- 📜 **LENDING_CLOB_MANAGER**: [`0xaB614229Bc3f24ccc3D5e2C5dfB49fd5EfF4b5bE`](https://testnet.monadexplorer.com/address/0xaB614229Bc3f24ccc3D5e2C5dfB49fd5EfF4b5bE)
+- 🏦 **LENDING_POOL_MANAGER**: [`0x063Deb511f03bcFEB52bbE8cD02EFe83e99B2c6B`](https://testnet.monadexplorer.com/address/0x063Deb511f03bcFEB52bbE8cD02EFe83e99B2c6B)
+- 🔄 **PINJOC_ROUTER**: [`0xDf7dC6ca55ab4FcBFd8bea12d44f6CCB1A87C1Cb`](https://testnet.monadexplorer.com/address/0xDf7dC6ca55ab4FcBFd8bea12d44f6CCB1A87C1Cb)
 
-🪙 USDC: 0x794Bc7Bcb31F39009827Db1e230fDBEa99830F25
-
-⚡ WETH: 0x4c1D0b1611155Cc477024C4bbaaD473859c6CD40
-
-💰 WBTC: 0x9c0E6Bb26f03E980A0C3B2Ab25fb99B7C75a6957
-
-🌊 WSOL: 0x1C55018d65143E9F55ea68021687DEDe068d7F4e
-
-🔗 WLINK: 0xfb24385adaa92B68DcdA5163a3Ba3Cd98BD898CE
-
-🔵 WAAVE: 0xE96D7715CEbe80849b9Ebd6a58172c365Bf8Ebe3
-
-📜 LENDING_CLOB_MANAGER: 0xaB614229Bc3f24ccc3D5e2C5dfB49fd5EfF4b5bE
-
-🏦 LENDING_POOL_MANAGER: 0x063Deb511f03bcFEB52bbE8cD02EFe83e99B2c6B
-
-🔄 PINJOC_ROUTER: 0xDf7dC6ca55ab4FcBFd8bea12d44f6CCB1A87C1Cb
 ---
 
 ## 🚀 Getting Started
